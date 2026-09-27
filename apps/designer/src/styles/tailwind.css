@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@source "../../../../packages/ui/src/";
+
+@theme {
+  --color-cus-background: var(--cus-background);
+  --color-cus-foreground: var(--cus-foreground);
+  --color-cus-primary: var(--cus-primary);
+  --color-cus-primary-foreground: var(--cus-primary-foreground);
+  --color-cus-muted: var(--cus-muted);
+  --color-cus-border: var(--cus-border);
+  --color-cus-focus: var(--cus-focus);
+}

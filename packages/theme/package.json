@@ -1,0 +1,14 @@
+{
+  "name": "@cus/theme",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@cus/core": "workspace:*",
+    "@cus/color": "workspace:*",
+    "@cus/palette": "workspace:*"
+  }
+}

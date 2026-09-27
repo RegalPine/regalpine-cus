@@ -1,0 +1,35 @@
+{
+  "name": "cus",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.28.2",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "pnpm typecheck && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:phase1": "vitest run tests/color/conversion.test.ts tests/color/gamut.test.ts tests/color/reference.test.ts",
+    "test:watch": "vitest",
+    "test:e2e": "playwright test",
+    "test:setup": "PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium --no-shell",
+    "test:visual": "playwright test --grep 视觉",
+    "test:visual:update": "playwright test --grep 视觉 --update-snapshots"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.1.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1",
+    "vitest": "^4.0.18"
+  }
+}
