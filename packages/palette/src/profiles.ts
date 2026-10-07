@@ -84,9 +84,9 @@ function interpolateAnchors(
 }
 
 // ─── PALETTE-01 §8–§9：Chroma Profile ────────────────────────────────────────
-// 当前 CURVE：两端收敛中段峰值的确定性曲线（与既有实现等价）。
+// Bootstrap-inspired 饱和度纪律：与 okpalette CURVE / CHROMA_CURVE 保持一致。
 export const DEFAULT_CHROMA_CURVE = [
-  0.1, 0.2, 0.36, 0.56, 0.8, 1, 0.95, 0.85, 0.7, 0.52, 0.36,
+  0.08, 0.18, 0.36, 0.58, 0.82, 1, 0.92, 0.78, 0.58, 0.38, 0.22,
 ] as const;
 
 /**

@@ -28,6 +28,7 @@ import {
   normalizeHue,
   deltaEOK,
   minimumContrast,
+  contrastRatio,
   colorOutput,
   mapOklchToGamut,
   oklchToOklab,
@@ -52,7 +53,9 @@ export const OK_NEUTRAL_LIGHTNESS = {
     1, 0.96, 0.91, 0.84, 0.76, 0.68, 0.57, 0.47, 0.37, 0.28, 0.2, 0.14, 0.08,
   ],
 } as const;
-const CURVE = [0.1, 0.2, 0.36, 0.56, 0.8, 1, 0.95, 0.85, 0.7, 0.52, 0.36];
+// Bootstrap-inspired 饱和度纪律：中段（step 500）峰值，向两端平滑收敛，
+// 避免极端色阶保留过高色度导致视觉噪声。
+const CURVE = [0.08, 0.18, 0.36, 0.58, 0.82, 1, 0.92, 0.78, 0.58, 0.38, 0.22];
 export const OK_SEMANTIC_HUES: Record<SemanticRole, readonly number[]> = {
   success: [145, 135, 155],
   warning: [85, 75, 95],
@@ -219,8 +222,13 @@ export function generateOklchPalette(
           ),
         ),
       );
+      // Bootstrap-inspired 语义色相间距：分离度达标时给予额外奖励，
+      // 确保语义色之间保持足够的视觉区分。
+      const MIN_SEPARATION_BONUS = 0.15;
+      const separationWeight = options.semantic === "distinct" ? 1.5 : 1;
+      const bonus = separation >= MIN_SEPARATION_BONUS ? 0.1 : 0;
       const score =
-        separation * (options.semantic === "distinct" ? 1.5 : 1) +
+        separation * separationWeight + bonus +
         0.05 * deltaEOK(colorOutput(base).rendered.oklab, brand.oklab);
       return {
         h,
@@ -296,16 +304,38 @@ export function generateOklchPalette(
     selectHue([150, -150, 120, -120, 180]),
     anchor.c * factor[options.chroma ?? "balanced"],
   );
-  return {
-    primary,
-    neutral,
-    semantic,
-    feedback,
-    secondary,
-    accent,
-    // V2.4 §18：品牌锚点。
+  // Bootstrap-inspired 协调性验证：对比度 + 感知均匀性（不阻断生成）。
+  const harmonyPalette: V2Palette = {
+    primary, neutral, semantic, feedback, secondary, accent,
     brandAnchor: { l: anchor.l, c: anchor.c, h: anchor.h },
     paletteProvenance,
+  };
+  const contrastIssues = validateContrastHarmony(harmonyPalette, mode);
+  if (contrastIssues.length > 0) {
+    decisionRecords["contrast.harmony"] = {
+      requested: { l: 0, c: 0, h: null },
+      resolved: { l: 0, c: 0, h: null },
+      adjustments: [],
+      reason: ["CONTRAST_REQUIREMENT"],
+    };
+  }
+  const perceptualWarnings = validatePerceptualUniformity(
+    { primary, secondary, accent, ...feedback },
+    mode,
+  );
+  for (const w of perceptualWarnings) {
+    const key = `perceptual.${w.family}`;
+    if (!(key in decisionRecords)) {
+      decisionRecords[key] = {
+        requested: { l: 0, c: 0, h: null },
+        resolved: { l: 0, c: 0, h: null },
+        adjustments: [],
+        reason: ["LIGHTNESS_ORDERING"],
+      };
+    }
+  }
+  return {
+    ...harmonyPalette,
     ...(conflicts.length ? { constraintConflicts: conflicts } : {}),
     // PALETTE-01 §43：逐色约束决策记录。
     ...(Object.keys(decisionRecords).length > 0 ? { decisionRecords } : {}),
@@ -436,6 +466,109 @@ export function validateLightnessOrdering(
           message: `${family}[${steps[i]}] L=${lValues[i].toFixed(4)} >= ${family}[${steps[i - 1]}] L=${lValues[i - 1].toFixed(4)}，违反 Lightness Ordering（§22/§55）`,
         });
         break; // 每个家族只报告第一个违规。
+      }
+    }
+  }
+  return warnings;
+}
+
+// ─── Bootstrap-inspired 协调性验证 ──────────────────────────────────────────
+/**
+ * OKLCH 两色的 sRGB WCAG 对比度。
+ */
+function oklchContrastRatio(a: OKLCH, b: OKLCH): number {
+  const rgbA = colorOutput(
+    createOklchColor(a, 1, { id: "cr.fg", source: "", mode: "light", family: "", step: 0, parameters: { ...a } }),
+    "srgb",
+  ).rendered.rgb;
+  const rgbB = colorOutput(
+    createOklchColor(b, 1, { id: "cr.bg", source: "", mode: "light", family: "", step: 0, parameters: { ...b } }),
+    "srgb",
+  ).rendered.rgb;
+  return contrastRatio(rgbA, rgbB);
+}
+
+interface ContrastIssue {
+  pair: string;
+  ratio: number;
+  required: number;
+}
+
+/**
+ * Bootstrap-inspired 对比度协调性验证。
+ * 检查语义色的 foreground/soft、base/surface 组合是否满足 WCAG 阈值。
+ * 不阻断生成，仅报告 issue。
+ */
+export function validateContrastHarmony(
+  palette: V2Palette,
+  mode: ThemeMode,
+): ContrastIssue[] {
+  const issues: ContrastIssue[] = [];
+  const surface = palette.neutral[mode === "dark" ? 900 : 100] as UIColor;
+  const surfaceLch: OKLCH = surface.design;
+  for (const role of SEMANTIC_ROLES) {
+    const entry = palette.semantic[role];
+    if (!entry) continue;
+    const fg: OKLCH = (entry.foreground as UIColor).design;
+    const soft: OKLCH = (entry.soft as UIColor).design;
+    const base: OKLCH = (entry.base as UIColor).design;
+    const fgSoftRatio = oklchContrastRatio(fg, soft);
+    if (fgSoftRatio < 4.5) {
+      issues.push({
+        pair: `feedback.${role}.foreground/soft`,
+        ratio: Math.round(fgSoftRatio * 100) / 100,
+        required: 4.5,
+      });
+    }
+    const baseSurfaceRatio = oklchContrastRatio(base, surfaceLch);
+    if (baseSurfaceRatio < 3) {
+      issues.push({
+        pair: `feedback.${role}.base/neutral.${mode === "dark" ? 900 : 100}`,
+        ratio: Math.round(baseSurfaceRatio * 100) / 100,
+        required: 3,
+      });
+    }
+  }
+  return issues;
+}
+
+/**
+ * Bootstrap-inspired 感知一致性验证。
+ * 检查每个色阶族的 L 值单调性与步长均匀性——
+ * 同色阶等级的不同色相应具有接近的感知亮度。
+ */
+export function validatePerceptualUniformity(
+  scales: Record<string, ColorScale>,
+  _mode: ThemeMode,
+): { family: string; message: string }[] {
+  const warnings: { family: string; message: string }[] = [];
+  for (const [family, scale] of Object.entries(scales)) {
+    const lValues = STEPS.map((s) => (scale[s] as UIColor).design.l);
+    // 单调性检查。
+    for (let i = 1; i < lValues.length; i++) {
+      if (lValues[i] >= lValues[i - 1] + 1e-9) {
+        warnings.push({
+          family,
+          message: `${family}[${STEPS[i]}] L=${lValues[i].toFixed(4)} >= ${family}[${STEPS[i - 1]}] L=${lValues[i - 1].toFixed(4)}，感知亮度非单调递减`,
+        });
+        break;
+      }
+    }
+    // 步长均匀性检查：相邻步的 ΔL 不应差异过大。
+    const deltas: number[] = [];
+    for (let i = 0; i < lValues.length - 1; i++) {
+      deltas.push(Math.abs(lValues[i] - lValues[i + 1]));
+    }
+    for (let i = 1; i < deltas.length; i++) {
+      const ratio = deltas[i - 1] > 0.001
+        ? Math.abs(deltas[i] - deltas[i - 1]) / deltas[i - 1]
+        : 0;
+      if (ratio > 0.6) {
+        warnings.push({
+          family,
+          message: `${family} 步长不均匀：ΔL[${i - 1}→${i}]=${deltas[i - 1].toFixed(4)}, ΔL[${i}→${i + 1}]=${deltas[i].toFixed(4)}，差异 ${(ratio * 100).toFixed(0)}%`,
+        });
+        break;
       }
     }
   }
