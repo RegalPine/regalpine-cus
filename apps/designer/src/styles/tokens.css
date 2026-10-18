@@ -1,0 +1,85 @@
+/* tokens.css — Design Token CSS 自定义属性（供非 Tailwind 场景使用，如 Three.js 颜色引用） */
+
+:root {
+  /* ── Surface 层级 ── */
+  --surface: #0f131c;
+  --surface-dim: #0f131c;
+  --surface-bright: #353942;
+  --surface-container-lowest: #0a0e16;
+  --surface-container-low: #181c24;
+  --surface-container: #1c2028;
+  --surface-container-high: #262a33;
+  --surface-container-highest: #31353e;
+
+  /* ── 前景与文本 ── */
+  --on-surface: #dfe2ee;
+  --on-surface-variant: #c7c4d7;
+  --on-background: #dfe2ee;
+
+  /* ── Primary ── */
+  --primary: #c0c1ff;
+  --on-primary: #1000a9;
+  --primary-container: #8083ff;
+  --on-primary-container: #0d0096;
+  --inverse-primary: #494bd6;
+
+  /* ── Secondary ── */
+  --secondary: #4edea3;
+  --on-secondary: #003824;
+  --secondary-container: #00a572;
+  --on-secondary-container: #00311f;
+
+  /* ── Tertiary ── */
+  --tertiary: #ffb783;
+  --on-tertiary: #4f2500;
+  --tertiary-container: #d97721;
+  --on-tertiary-container: #452000;
+
+  /* ── Error ── */
+  --error: #ffb4ab;
+  --on-error: #690005;
+  --error-container: #93000a;
+  --on-error-container: #ffdad6;
+
+  /* ── Inverse ── */
+  --inverse-surface: #dfe2ee;
+  --inverse-on-surface: #2c3039;
+
+  /* ── Outline ── */
+  --outline: #908fa0;
+  --outline-variant: #464554;
+
+  /* ── Background ── */
+  --background: #0f131c;
+
+  /* ── Fixed 色 ── */
+  --primary-fixed: #e1e0ff;
+  --primary-fixed-dim: #c0c1ff;
+  --secondary-fixed: #6ffbbe;
+  --secondary-fixed-dim: #4edea3;
+  --tertiary-fixed: #ffdcc5;
+  --tertiary-fixed-dim: #ffb783;
+
+  /* ── Surface Variant ── */
+  --surface-variant: #31353e;
+  --surface-tint: #c0c1ff;
+
+  /* ── 圆角 ── */
+  --radius-sm: 0.125rem;
+  --radius-default: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-full: 9999px;
+
+  /* ── 间距 ── */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 0.75rem;
+  --space-lg: 1rem;
+  --space-xl: 1.5rem;
+  --gutter: 1rem;
+  --gutter-desktop: 1.5rem;
+  --margin: 1rem;
+  --margin-desktop: 1.5rem;
+}

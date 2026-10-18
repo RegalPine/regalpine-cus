@@ -2,7 +2,146 @@
 
 @source "../../../../packages/ui/src/";
 
+/* ── CUS Designer Design Token Theme ── */
+/* 基于 perceptual_color_engine/DESIGN.md 规范 */
+
 @theme {
+  /* ── Surface 层级（MD3 暗色调） ── */
+  --color-surface: #0f131c;
+  --color-surface-dim: #0f131c;
+  --color-surface-bright: #353942;
+  --color-surface-container-lowest: #0a0e16;
+  --color-surface-container-low: #181c24;
+  --color-surface-container: #1c2028;
+  --color-surface-container-high: #262a33;
+  --color-surface-container-highest: #31353e;
+
+  /* ── 前景与文本 ── */
+  --color-on-surface: #dfe2ee;
+  --color-on-surface-variant: #c7c4d7;
+  --color-on-background: #dfe2ee;
+
+  /* ── Primary ── */
+  --color-primary: #c0c1ff;
+  --color-on-primary: #1000a9;
+  --color-primary-container: #8083ff;
+  --color-on-primary-container: #0d0096;
+  --color-inverse-primary: #494bd6;
+
+  /* ── Secondary ── */
+  --color-secondary: #4edea3;
+  --color-on-secondary: #003824;
+  --color-secondary-container: #00a572;
+  --color-on-secondary-container: #00311f;
+
+  /* ── Tertiary ── */
+  --color-tertiary: #ffb783;
+  --color-on-tertiary: #4f2500;
+  --color-tertiary-container: #d97721;
+  --color-on-tertiary-container: #452000;
+
+  /* ── Error ── */
+  --color-error: #ffb4ab;
+  --color-on-error: #690005;
+  --color-error-container: #93000a;
+  --color-on-error-container: #ffdad6;
+
+  /* ── Inverse ── */
+  --color-inverse-surface: #dfe2ee;
+  --color-inverse-on-surface: #2c3039;
+
+  /* ── Outline ── */
+  --color-outline: #908fa0;
+  --color-outline-variant: #464554;
+
+  /* ── Fixed 色 ── */
+  --color-primary-fixed: #e1e0ff;
+  --color-primary-fixed-dim: #c0c1ff;
+  --color-on-primary-fixed: #07006c;
+  --color-on-primary-fixed-variant: #2f2ebe;
+  --color-secondary-fixed: #6ffbbe;
+  --color-secondary-fixed-dim: #4edea3;
+  --color-on-secondary-fixed: #002113;
+  --color-on-secondary-fixed-variant: #005236;
+  --color-tertiary-fixed: #ffdcc5;
+  --color-tertiary-fixed-dim: #ffb783;
+  --color-on-tertiary-fixed: #301400;
+  --color-on-tertiary-fixed-variant: #703700;
+
+  /* ── Surface Variant ── */
+  --color-surface-variant: #31353e;
+  --color-surface-tint: #c0c1ff;
+
+  /* ── Background ── */
+  --color-background: #0f131c;
+
+  /* ── 圆角 ── */
+  --radius-sm: 0.125rem;
+  --radius-default: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-full: 9999px;
+
+  /* ── 间距 ── */
+  --spacing-space-xs: 0.25rem;
+  --spacing-space-sm: 0.5rem;
+  --spacing-space-md: 0.75rem;
+  --spacing-space-lg: 1rem;
+  --spacing-space-xl: 1.5rem;
+  --spacing-gutter: 1rem;
+  --spacing-gutter-desktop: 1.5rem;
+  --spacing-margin: 1rem;
+  --spacing-margin-desktop: 1.5rem;
+
+  /* ── 字体族 ── */
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "PingFang SC",
+    "Microsoft YaHei", sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
+  --font-icon: "Material Symbols Outlined";
+
+  /* ── 9 级字体层级（基于 DESIGN.md） ── */
+  --text-headline-xl: 32px;
+  --leading-headline-xl: 40px;
+  --tracking-headline-xl: -0.02em;
+  --font-headline-xl: 600;
+
+  --text-headline-lg: 20px;
+  --leading-headline-lg: 28px;
+  --tracking-headline-lg: -0.01em;
+  --font-headline-lg: 600;
+
+  --text-headline-sm: 16px;
+  --leading-headline-sm: 24px;
+  --tracking-headline-sm: -0.005em;
+  --font-headline-sm: 500;
+
+  --text-body-lg: 14px;
+  --leading-body-lg: 22px;
+  --tracking-body-lg: -0.01em;
+  --font-body-lg: 400;
+
+  --text-body-sm: 12px;
+  --leading-body-sm: 18px;
+  --tracking-body-sm: 0em;
+  --font-body-sm: 400;
+
+  --text-label-md: 13px;
+  --leading-label-md: 18px;
+  --tracking-label-md: 0em;
+  --font-label-md: 500;
+
+  --text-label-sm: 11px;
+  --leading-label-sm: 16px;
+  --tracking-label-sm: 0.04em;
+  --font-label-sm: 600;
+
+  --text-code-value: 12px;
+  --leading-code-value: 16px;
+  --tracking-code-value: 0em;
+  --font-code-value: 500;
+
+  /* ── 保留 cus-* 兼容（旧组件过渡期） ── */
   --color-cus-background: var(--cus-background);
   --color-cus-foreground: var(--cus-foreground);
   --color-cus-primary: var(--cus-primary);

@@ -16,10 +16,11 @@ import {
 import { resolveToken } from "@cus/theme";
 import { validateColorQuality } from "@cus/validation";
 import { usePreviewSpace } from "./PreviewSpace";
+import { useT } from "../i18n";
 
-const values = (value: object) =>
+const values = (value: object, naText: string) =>
   Object.values(value)
-    .map((v) => (typeof v === "number" ? v.toFixed(6) : "不适用"))
+    .map((v) => (typeof v === "number" ? v.toFixed(6) : naText))
     .join(" / ");
 export function ColorInspector({
   color,
@@ -28,6 +29,7 @@ export function ColorInspector({
   color: V2Color;
   result: GeneratedTheme;
 }) {
+  const t = useT();
   const space = usePreviewSpace();
   const [background, setBackground] = useState("surface.default");
   const mode = color.provenance?.mode ?? "light";
@@ -48,7 +50,7 @@ export function ColorInspector({
       resolveToken(tokens, "surface.default"),
     ).contrast.toFixed(3);
   } catch {
-    contrast = "不适用：缺少不透明画布";
+    contrast = t("inspector.naCanvas");
   }
   return (
     <div className="color-inspector">
@@ -74,26 +76,26 @@ export function ColorInspector({
         <table className="metrics-table">
           <thead>
             <tr>
-              <th>空间</th>
-              <th>设计源</th>
-              <th>映射计算值</th>
-              <th>实际渲染值</th>
+              <th>{t("inspector.space")}</th>
+              <th>{t("inspector.designSrc")}</th>
+              <th>{t("inspector.mappedVal")}</th>
+              <th>{t("inspector.renderedVal")}</th>
             </tr>
           </thead>
           <tbody>
             {(["oklch", "oklab", "xyz", "lab", "lch"] as const).map((key) => (
               <tr key={key}>
                 <th>{key}</th>
-                <td>{values(designValues[key])}</td>
-                <td>{values(out.calculation[key])}</td>
-                <td>{values(out.rendered[key])}</td>
+                <td>{values(designValues[key], t("inspector.na"))}</td>
+                <td>{values(out.calculation[key], t("inspector.na"))}</td>
+                <td>{values(out.rendered[key], t("inspector.na"))}</td>
               </tr>
             ))}
             <tr>
               <th>RGB ({space})</th>
-              <td>不适用</td>
-              <td>{values(out.calculation.rgb)}</td>
-              <td>{values(out.rendered.rgb)}</td>
+              <td>{t("inspector.na")}</td>
+              <td>{values(out.calculation.rgb, t("inspector.na"))}</td>
+              <td>{values(out.rendered.rgb, t("inspector.na"))}</td>
             </tr>
             <tr>
               <th>Alpha</th>
@@ -114,11 +116,11 @@ export function ColorInspector({
               <h4>{target}</h4>
               <p>
                 {status === "IN_GAMUT"
-                  ? "设计色域内"
+                  ? t("inspector.inGamut")
                   : status === "NEAR_GAMUT_BOUNDARY"
-                    ? "接近色域边界"
-                    : "设计色域外，已映射"}{" "}
-                · 色度压缩 {(output.chromaReduction * 100).toFixed(3)}%
+                    ? t("inspector.nearBoundary")
+                    : t("inspector.outOfGamut")}{" "}
+                · {t("inspector.chromaCompress")} {(output.chromaReduction * 100).toFixed(3)}%
               </p>
               <p>
                 ΔEOK {deltaEOK(oklab, output.rendered.oklab).toFixed(6)} · ΔE00{" "}
@@ -129,9 +131,9 @@ export function ColorInspector({
         })}
       </div>
       <label>
-        对比背景{" "}
+        {t("inspector.contrastBg")}{" "}
         <select
-          aria-label="检查器背景"
+          aria-label={t("inspector.ariaBg")}
           value={background}
           onChange={(e) => setBackground(e.target.value)}
         >
@@ -146,15 +148,14 @@ export function ColorInspector({
         </select>
       </label>
       <p>
-        实际合成对比度：{contrast} · 编码 RGB Alpha 合成；P3 指标不等同完整 WCAG
-        认证。
+        {t("inspector.compositeContrast")}：{contrast} · {t("inspector.compositeNote")}
       </p>
       <details>
-        <summary>V2.5 Quality 诊断</summary>
+        <summary>{t("inspector.qualityDiag")}</summary>
         <QualityDiagnostics color={color} />
       </details>
       <details>
-        <summary>来源与真实验证</summary>
+        <summary>{t("inspector.provenance")}</summary>
         <pre className="inspector-css">
           {JSON.stringify(color.provenance, null, 2)}
         </pre>
@@ -173,6 +174,7 @@ export function ColorInspector({
 }
 
 function QualityDiagnostics({ color }: { color: V2Color }) {
+  const t = useT();
   const design = colorDesign(color);
   // 从 provenance.id 推断 role（如 "primary.500" → "primary"）
   const idParts = color.provenance?.id?.split(".") ?? [];
@@ -188,33 +190,33 @@ function QualityDiagnostics({ color }: { color: V2Color }) {
     };
     qualityResult = validateColorQuality(ctx);
   } catch {
-    return <p>Quality 诊断不可用：颜色坐标无效</p>;
+    return <p>{t("inspector.qualityUnavailable")}</p>;
   }
   
   const metrics = [
-    { name: "Hue Stability", metric: qualityResult.hueStability },
-    { name: "Chroma Adequacy", metric: qualityResult.chromaAdequacy },
-    { name: "Lightness Adequacy", metric: qualityResult.lightnessAdequacy },
-    { name: "Gamut Efficiency", metric: qualityResult.gamutEfficiency },
-    { name: "Perceptual Separation", metric: qualityResult.perceptualSeparation },
-    { name: "Context Compatibility", metric: qualityResult.contextCompatibility },
+    { name: t("inspector.hueStability"), metric: qualityResult.hueStability },
+    { name: t("inspector.chromaAdequacy"), metric: qualityResult.chromaAdequacy },
+    { name: t("inspector.lightnessAdequacy"), metric: qualityResult.lightnessAdequacy },
+    { name: t("inspector.gamutEfficiency"), metric: qualityResult.gamutEfficiency },
+    { name: t("inspector.perceptualSeparation"), metric: qualityResult.perceptualSeparation },
+    { name: t("inspector.contextCompat"), metric: qualityResult.contextCompatibility },
   ];
   
   return (
     <div className="quality-diagnostics">
       <p>
-        <strong>整体状态：</strong>{" "}
+        <strong>{t("inspector.overallStatus")}</strong>{" "}
         <span className={`quality-status-${qualityResult.valid ? "pass" : "fail"}`}>
-          {qualityResult.valid ? "✓ 通过" : "✗ 失败"}
+          {qualityResult.valid ? t("inspector.pass") : t("inspector.fail")}
         </span>
       </p>
       <table className="metrics-table">
         <thead>
           <tr>
-            <th>指标</th>
-            <th>状态</th>
-            <th>值</th>
-            <th>原因</th>
+            <th>{t("inspector.metric")}</th>
+            <th>{t("inspector.statusCol")}</th>
+            <th>{t("inspector.valueCol")}</th>
+            <th>{t("inspector.reasonCol")}</th>
           </tr>
         </thead>
         <tbody>

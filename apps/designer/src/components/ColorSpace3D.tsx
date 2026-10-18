@@ -1,13 +1,16 @@
 /**
- * CUS-IMPLEMENTATION-03 §5 / CUS-UX-02：WebGL 3D 色彩空间渲染器（three.js）。
+ * CUS-IMPLEMENTATION-03 §5 / CUS-UX-02：React Three Fiber 3D 色彩空间渲染器。
  * UX-02 §25：默认 Orthographic 投影（色彩空间分析需要几何稳定性）。
  * UX-02 §5–§8：Volume 点云渲染（uniform + adaptive 采样，由宿主注入）。
  * UX-02 §18–§19：射线 + Volume/Slice 相交拾取（连续坐标，非最近采样点）。
  * UX-02 §29：3D 中显示当前切片平面。
+ *
+ * 使用 React Three Fiber 声明式 API，提供更好的 React 集成和可维护性。
  */
-import { useEffect, useRef } from "react";
+import { useRef, useMemo, useEffect } from "react";
+import { Canvas, useFrame, type ThreeEvent } from "@react-three/fiber";
+import { OrbitControls, Html, Line } from "@react-three/drei";
 import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { OKLCH, RGBSpace, V2Color, Oklab, SliceDefinition } from "@cus/core";
 import {
   rayVolumeIntersect,
@@ -77,9 +80,59 @@ export interface ColorSpace3DProps {
   slice?: SliceDefinition | null;
   /** UX-02 §18–§19：Volume/切片拾取回调（返回连续 OKLab 坐标）。 */
   onVolumePick?: (lab: Oklab, oklch: { l: number; c: number; h: number | null }) => void;
+  /** 显示颜色点标签（key 名称） */
+  showLabels?: boolean;
+  /** 显示 Max Chroma 标注 */
+  showMaxChroma?: boolean;
 }
 
-export function ColorSpace3D({
+/**
+ * 主组件：使用 React Three Fiber Canvas 包装 3D 场景
+ */
+export function ColorSpace3D(props: ColorSpace3DProps) {
+  const {
+    projection = "ORTHOGRAPHIC",
+    zoom = 1,
+    rotation,
+    pan,
+  } = props;
+
+  // 计算相机位置
+  const dist = 2.5 / zoom;
+  const { yaw, pitch } = rotation;
+  const cx = dist * Math.sin(yaw) * Math.cos(pitch);
+  const cy = dist * Math.sin(pitch);
+  const cz = dist * Math.cos(yaw) * Math.cos(pitch);
+  const cameraPosition: [number, number, number] = [cx, cy, cz];
+  const target: [number, number, number] = [pan.x * 0.002, -pan.y * 0.002, 0];
+
+  return (
+    <div style={{ position: "relative", width: "100%", height: 620 }}>
+      <Canvas
+        orthographic={projection === "ORTHOGRAPHIC"}
+        camera={{
+          position: cameraPosition,
+          zoom: projection === "ORTHOGRAPHIC" ? zoom * 150 : undefined,
+          fov: 50,
+          near: 0.01,
+          far: 100,
+        }}
+        gl={{ antialias: true, alpha: true }}
+        style={{ background: "#13151a" }}
+        onCreated={({ gl }) => {
+          gl.localClippingEnabled = true;
+        }}
+      >
+        <SceneContent {...props} target={target} />
+      </Canvas>
+    </div>
+  );
+}
+
+/**
+ * 场景内容组件
+ */
+function SceneContent({
   gamutMeshes,
   colorPoints,
   dirtyDots,
@@ -91,505 +144,546 @@ export function ColorSpace3D({
   layers,
   surfaces,
   crossSection,
-  rotation,
-  zoom,
-  pan,
   onSelect,
   haloKeys,
-  projection = "ORTHOGRAPHIC",
   volumePoints,
   slice,
   onVolumePick,
-}: ColorSpace3DProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  // UX-02 §25：相机支持 Orthographic（默认）与 Perspective 两种投影。
-  const cameraRef = useRef<THREE.Camera | null>(null);
-  const controlsRef = useRef<OrbitControls | null>(null);
-  const sceneRef = useRef<THREE.Scene | null>(null);
-  const dataGroupRef = useRef<THREE.Group | null>(null);
-  const labelsGroupRef = useRef<THREE.Group | null>(null);
-  const designMeshRef = useRef<THREE.InstancedMesh | null>(null);
-  const mappedMeshRef = useRef<THREE.InstancedMesh | null>(null);
-  const volumeMeshRef = useRef<THREE.InstancedMesh | null>(null);
-  const onSelectRef = useRef(onSelect);
-  onSelectRef.current = onSelect;
-  const onVolumePickRef = useRef(onVolumePick);
-  onVolumePickRef.current = onVolumePick;
-  const colorPointsRef = useRef(colorPoints);
-  colorPointsRef.current = colorPoints;
-  const modelRef = useRef(model);
-  modelRef.current = model;
-  const sliceRef = useRef(slice);
-  sliceRef.current = slice;
-  const animIdRef = useRef(0);
-  const labelContainerRef = useRef<HTMLDivElement | null>(null);
-  const labelDataRef = useRef<
-    { el: HTMLSpanElement; pos: THREE.Vector3 }[]
-  >([]);
+  showLabels,
+  showMaxChroma,
+  target,
+}: ColorSpace3DProps & { target: [number, number, number] }) {
+  const controlsRef = useRef<any>(null);
 
-  // ── Effect 1: Scene / Camera / Renderer / Controls (re-create on zoom) ────
+  // 更新 OrbitControls target
   useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const w = container.clientWidth || 700;
-    const h = container.clientHeight || 490;
-
-    // Scene
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color("#f6f7f9");
-    sceneRef.current = scene;
-
-    // Camera
-    const dist = 2.5 / zoom;
-    const { yaw, pitch } = rotation;
-    const cx = dist * Math.sin(yaw) * Math.cos(pitch);
-    const cy = dist * Math.sin(pitch);
-    const cz = dist * Math.cos(yaw) * Math.cos(pitch);
-    const target = new THREE.Vector3(pan.x * 0.002, -pan.y * 0.002, 0);
-    // UX-02 §25：默认 Orthographic（色彩空间分析需要几何稳定性，而非视觉透视效果）。
-    let camera: THREE.Camera;
-    if (projection === "PERSPECTIVE") {
-      const pc = new THREE.PerspectiveCamera(50, w / h, 0.01, 100);
-      pc.position.set(cx, cy, cz);
-      pc.lookAt(target);
-      camera = pc;
-    } else {
-      const frustum = 1.4 / zoom;
-      const aspect = w / h;
-      const oc = new THREE.OrthographicCamera(
-        -frustum * aspect,
-        frustum * aspect,
-        frustum,
-        -frustum,
-        0.01,
-        100,
-      );
-      oc.position.set(cx, cy, cz);
-      oc.lookAt(target);
-      camera = oc;
+    if (controlsRef.current) {
+      controlsRef.current.target.set(target[0], target[1], target[2]);
+      controlsRef.current.update();
     }
-    cameraRef.current = camera;
+  }, [target]);
 
-    // Renderer
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: true,
+  // 点击处理
+  const handleClick = (event: ThreeEvent<PointerEvent>) => {
+    event.stopPropagation();
+    
+    // 检查是否点击了色点
+    if (event.object.userData.type === "colorPoint") {
+      const index = event.object.userData.index;
+      if (index !== undefined && colorPoints[index]) {
+        const pt = colorPoints[index];
+        onSelect(pt.key, pt.color);
+        return;
+      }
+    }
+
+    // UX-02 §18–§19：未命中色点时，用射线 + Volume/Slice 相交产生连续 OKLab 坐标。
+    if (onVolumePick && model === "oklab" && event.ray) {
+      const lab = pickOklabFromRay(event.ray, slice);
+      if (lab) {
+        onVolumePick(lab, oklabToOklch(lab));
+      }
+    }
+  };
+
+  return (
+    <>
+      <OrbitControls
+        ref={controlsRef}
+        enableDamping
+        dampingFactor={0.1}
+        minDistance={0.5}
+        maxDistance={5}
+        makeDefault
+      />
+
+      {/* 场景点击背景 */}
+      <mesh onClick={handleClick} visible={false}>
+        <sphereGeometry args={[10, 8, 8]} />
+        <meshBasicMaterial side={THREE.BackSide} />
+      </mesh>
+
+      {/* 色域边界网格 */}
+      {layers.gamutBoundary && gamutMeshes.map((mesh, i) => 
+        surfaces[mesh.target] && (
+          <GamutMesh key={i} meshData={mesh} />
+        )
+      )}
+
+      {/* 颜色点 */}
+      <ColorPoints
+        colorPoints={colorPoints}
+        haloKeys={haloKeys}
+        layers={layers}
+        onSelect={onSelect}
+        showLabels={showLabels}
+      />
+
+      {/* 纬度环（OKLab 模型） */}
+      {(model === "oklab" || model === "lab") && layers.lightnessGrid && <LatitudeRings />}
+
+      {/* Max Chroma 标注 */}
+      {showMaxChroma && (
+        <Html position={[0.25, 0.12, 0]} center>
+          <span style={{
+            fontSize: 10,
+            color: "#b0aec8",
+            whiteSpace: "nowrap",
+            fontFamily: "JetBrains Mono",
+            background: "rgba(15,17,24,0.7)",
+            padding: "1px 4px",
+            borderRadius: 3,
+          }}>
+            Max Chroma C: 0.32
+          </span>
+        </Html>
+      )}
+
+      {/* Dirty Zone 点 */}
+      {layers.dirtyZone && dirtyDots.length > 0 && (
+        <DirtyDots dirtyDots={dirtyDots} />
+      )}
+
+      {/* Palette 轨迹 */}
+      {layers.paletteTrail && paletteTrails.map((trail) => (
+        <PaletteTrail key={trail.family} trail={trail} />
+      ))}
+
+      {/* 截面导向线 */}
+      {crossSection && sectionGuide && sectionGuide.length >= 2 && (
+        <SectionGuide points={sectionGuide} />
+      )}
+
+      {/* Volume 点云 */}
+      {volumePoints && volumePoints.length > 0 && (
+        <VolumePoints points={volumePoints} />
+      )}
+
+      {/* 切片平面 */}
+      {slice && <SlicePlane slice={slice} />}
+
+      {/* 候选标记 */}
+      {candidatePos && (
+        <CandidateMarker position={candidatePos} color={candidateColor} />
+      )}
+
+      {/* 坐标轴和标签 */}
+      <Axes model={model} layers={layers} />
+    </>
+  );
+}
+
+/**
+ * 色域边界网格组件
+ */
+function GamutMesh({ meshData }: { meshData: GamutMeshData }) {
+  const isP3 = meshData.target === "display-p3";
+  const color = isP3 ? 0xc66b25 : 0x287db0;
+
+  const geometry = useMemo(() => {
+    const geo = new THREE.BufferGeometry();
+    const positions: number[] = [];
+    const colors: number[] = [];
+    const c = new THREE.Color(color);
+
+    for (const tri of meshData.triangles) {
+      for (const pt of tri) {
+        positions.push(pt[0], pt[1], pt[2]);
+        colors.push(c.r, c.g, c.b);
+      }
+    }
+
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    return geo;
+  }, [meshData, color]);
+
+  return (
+    <group>
+      {/* 实体面 */}
+      <mesh geometry={geometry}>
+        <meshBasicMaterial
+          vertexColors
+          transparent
+          opacity={0.035}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+        />
+      </mesh>
+      {/* 线框叠加 */}
+      <mesh geometry={geometry}>
+        <meshBasicMaterial
+          vertexColors
+          wireframe
+          transparent
+          opacity={0.12}
+          depthWrite={false}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+/**
+ * 颜色点组件（使用 InstancedMesh 优化性能）
+ */
+function ColorPoints({
+  colorPoints,
+  haloKeys,
+  layers,
+  onSelect,
+  showLabels,
+}: {
+  colorPoints: ColorPointData3D[];
+  haloKeys: Set<string>;
+  layers: ColorSpace3DProps["layers"];
+  onSelect: (name: string, color: V2Color) => void;
+  showLabels?: boolean;
+}) {
+  const designMeshRef = useRef<THREE.InstancedMesh>(null);
+  const mappedMeshRef = useRef<THREE.InstancedMesh>(null);
+
+  useEffect(() => {
+    if (!designMeshRef.current || !mappedMeshRef.current) return;
+
+    const dummy = new THREE.Object3D();
+    const tmpColor = new THREE.Color();
+
+    colorPoints.forEach((pt, i) => {
+      // 设计点（球体）
+      dummy.position.set(...pt.designPos);
+      dummy.updateMatrix();
+      designMeshRef.current!.setMatrixAt(i, dummy.matrix);
+      tmpColor.set(pt.designColor);
+      designMeshRef.current!.setColorAt(i, tmpColor);
+
+      // 映射点（方块）
+      dummy.position.set(...pt.mappedPos);
+      dummy.updateMatrix();
+      mappedMeshRef.current!.setMatrixAt(i, dummy.matrix);
+      tmpColor.set(pt.mappedColor);
+      mappedMeshRef.current!.setColorAt(i, tmpColor);
     });
-    renderer.setPixelRatio(window.devicePixelRatio);
-    renderer.setSize(w, h);
-    renderer.localClippingEnabled = true;
-    container.appendChild(renderer.domElement);
-    renderer.domElement.style.display = "block";
-    rendererRef.current = renderer;
 
-    // OrbitControls
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.1;
-    controls.minDistance = 0.5;
-    controls.maxDistance = 5;
-    controls.target.set(pan.x * 0.002, -pan.y * 0.002, 0);
-    controls.update();
-    controlsRef.current = controls;
-
-    // Data group
-    const dataGroup = new THREE.Group();
-    scene.add(dataGroup);
-    dataGroupRef.current = dataGroup;
-
-    // Labels group (billboard toward camera)
-    const labelsGroup = new THREE.Group();
-    scene.add(labelsGroup);
-    labelsGroupRef.current = labelsGroup;
-
-    // HTML overlay for text labels
-    const labelContainer = document.createElement("div");
-    labelContainer.className = "space-3d-labels";
-    labelContainer.style.cssText =
-      "position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;";
-    container.appendChild(labelContainer);
-    labelContainerRef.current = labelContainer;
-    // Store label data on container so animate loop can access it
-    const labelItems: { el: HTMLSpanElement; pos: THREE.Vector3 }[] = [];
-    (labelContainer as any).__cusLabels = labelItems;
-
-    // Resize handler
-    const onResize = () => {
-      const cw = container.clientWidth;
-      const ch = container.clientHeight;
-      if (cw > 0 && ch > 0) {
-        if (camera instanceof THREE.PerspectiveCamera) {
-          camera.aspect = cw / ch;
-          camera.updateProjectionMatrix();
-        } else if (camera instanceof THREE.OrthographicCamera) {
-          const frustum = 1.4 / zoom;
-          const aspect = cw / ch;
-          camera.left = -frustum * aspect;
-          camera.right = frustum * aspect;
-          camera.top = frustum;
-          camera.bottom = -frustum;
-          camera.updateProjectionMatrix();
-        }
-        renderer.setSize(cw, ch);
-      }
-    };
-    const resizeObserver = new ResizeObserver(onResize);
-    resizeObserver.observe(container);
-
-    // Render loop
-    const tmpQ = new THREE.Quaternion();
-    const animate = () => {
-      animIdRef.current = requestAnimationFrame(animate);
-      controls.update();
-      // Billboard labels toward camera
-      if (labelsGroup.children.length > 0) {
-        camera.getWorldQuaternion(tmpQ);
-        for (const child of labelsGroup.children) {
-          child.quaternion.copy(tmpQ);
-        }
-      }
-      // Update HTML label positions
-      const items = (labelContainer as any).__cusLabels as
-        | { el: HTMLSpanElement; pos: THREE.Vector3 }[]
-        | undefined;
-      if (items) updateHtmlLabels(camera, labelContainer, items);
-      renderer.render(scene, camera);
-    };
-    animate();
-
-    return () => {
-      cancelAnimationFrame(animIdRef.current);
-      resizeObserver.disconnect();
-      controls.dispose();
-      renderer.dispose();
-      if (renderer.domElement.parentNode) {
-        renderer.domElement.parentNode.removeChild(renderer.domElement);
-      }
-      if (labelContainer.parentNode) {
-        labelContainer.parentNode.removeChild(labelContainer);
-      }
-      labelContainerRef.current = null;
-      labelDataRef.current = [];
-      rendererRef.current = null;
-      cameraRef.current = null;
-      controlsRef.current = null;
-      sceneRef.current = null;
-      dataGroupRef.current = null;
-      labelsGroupRef.current = null;
-    };
-    // Re-create when zoom/rotation/pan/projection changes (camera position)
-  }, [zoom, rotation.yaw, rotation.pitch, pan.x, pan.y, projection]);
-
-  // ── Effect 2: Click handler (raycasting) ──────────────────────────────────
-  useEffect(() => {
-    const renderer = rendererRef.current;
-    if (!renderer) return;
-    const canvas = renderer.domElement;
-
-    const onClick = (event: PointerEvent) => {
-      const camera = cameraRef.current;
-      if (!camera) return;
-      const rect = canvas.getBoundingClientRect();
-      const mouse = new THREE.Vector2(
-        ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        -((event.clientY - rect.top) / rect.height) * 2 + 1,
-      );
-      const raycaster = new THREE.Raycaster();
-      raycaster.setFromCamera(mouse, camera);
-      const pts = colorPointsRef.current;
-      if (designMeshRef.current) {
-        const hits = raycaster.intersectObject(designMeshRef.current);
-        if (hits.length > 0 && hits[0].instanceId !== undefined) {
-          const p = pts[hits[0].instanceId];
-          if (p) onSelectRef.current(`${p.key}`, p.color);
-          return;
-        }
-      }
-      if (mappedMeshRef.current) {
-        const hits = raycaster.intersectObject(mappedMeshRef.current);
-        if (hits.length > 0 && hits[0].instanceId !== undefined) {
-          const p = pts[hits[0].instanceId];
-          if (p) onSelectRef.current(`${p.key}`, p.color);
-          return;
-        }
-      }
-      // UX-02 §18–§19：未命中色点时，用射线 + Volume/Slice 相交产生连续 OKLab 坐标。
-      // 仅 OKLab 主 3D 空间支持（§2：OKLab 为三维几何主空间）；其他空间走色点拾取。
-      if (onVolumePickRef.current && modelRef.current === "oklab") {
-        const lab = pickOklabFromRay(raycaster.ray, sliceRef.current);
-        if (lab) {
-          onVolumePickRef.current(lab, oklabToOklch(lab));
-        }
-      }
-    };
-    canvas.addEventListener("click", onClick);
-    return () => canvas.removeEventListener("click", onClick);
-  }, []);
-
-  // ── Effect 3: Build scene geometry ────────────────────────────────────────
-  useEffect(() => {
-    const group = dataGroupRef.current;
-    const labelsGroup = labelsGroupRef.current;
-    if (!group || !labelsGroup) return;
-
-    // Cleanup previous
-    for (const child of [...group.children]) {
-      group.remove(child);
-      disposeObject(child);
+    designMeshRef.current.instanceMatrix.needsUpdate = true;
+    if (designMeshRef.current.instanceColor) {
+      designMeshRef.current.instanceColor.needsUpdate = true;
     }
-    designMeshRef.current = null;
-    mappedMeshRef.current = null;
+    mappedMeshRef.current.instanceMatrix.needsUpdate = true;
+    if (mappedMeshRef.current.instanceColor) {
+      mappedMeshRef.current.instanceColor.needsUpdate = true;
+    }
+  }, [colorPoints]);
 
-    // Clear HTML labels
-    if (labelContainerRef.current) {
-      while (labelContainerRef.current.firstChild)
-        labelContainerRef.current.removeChild(
-          labelContainerRef.current.firstChild,
+  if (colorPoints.length === 0) return null;
+
+  return (
+    <group>
+      {/* 设计源点（球体） */}
+      <instancedMesh
+        ref={designMeshRef}
+        args={[undefined, undefined, colorPoints.length]}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (e.instanceId !== undefined && colorPoints[e.instanceId]) {
+            const pt = colorPoints[e.instanceId];
+            onSelect(pt.key, pt.color);
+          }
+        }}
+      >
+        <sphereGeometry args={[0.018, 12, 12]} />
+        <meshBasicMaterial color={0xffffff} />
+      </instancedMesh>
+
+      {/* 映射点（方块） */}
+      <instancedMesh
+        ref={mappedMeshRef}
+        args={[undefined, undefined, colorPoints.length]}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (e.instanceId !== undefined && colorPoints[e.instanceId]) {
+            const pt = colorPoints[e.instanceId];
+            onSelect(pt.key, pt.color);
+          }
+        }}
+      >
+        <boxGeometry args={[0.018, 0.018, 0.018]} />
+        <meshBasicMaterial color={0xffffff} />
+      </instancedMesh>
+
+      {/* 连接线（设计 → 映射） */}
+      <ConnectionLines colorPoints={colorPoints} />
+
+      {/* 颜色点标签 */}
+      {showLabels && colorPoints.map((pt) => {
+        // 只为最关键的品牌色点显示标签，避免重叠
+        const [family, step] = pt.key.split(".");
+        const isKeyPoint =
+          (family === "primary" && step === "600") ||
+          (family === "secondary" && step === "400") ||
+          (family === "accent" && step === "500") ||
+          (family === "error" && step === "500");
+        if (!isKeyPoint) return null;
+        return (
+          <Html key={`label-${pt.key}`} position={[pt.designPos[0], pt.designPos[1] + 0.04, pt.designPos[2]]} center>
+            <span style={{
+              fontSize: 10,
+              color: "#e0dff0",
+              whiteSpace: "nowrap",
+              fontFamily: "JetBrains Mono",
+              background: "rgba(15,17,24,0.85)",
+              padding: "2px 6px",
+              borderRadius: 4,
+              border: "1px solid rgba(128,131,255,0.4)",
+              letterSpacing: "0.02em",
+            }}>
+              {pt.key}
+            </span>
+          </Html>
         );
-    }
-    labelDataRef.current = [];
-    for (const child of [...labelsGroup.children]) {
-      labelsGroup.remove(child);
-    }
+      })}
 
-    // ── Gamut boundary meshes ───────────────────────────────────────────
-    for (const mesh of gamutMeshes) {
-      if (!layers.gamutBoundary || !surfaces[mesh.target]) continue;
-      const isP3 = mesh.target === "display-p3";
-      const color = isP3 ? 0xc66b25 : 0x287db0;
-      const positions: number[] = [];
-      const colors: number[] = [];
-      const c = new THREE.Color(color);
-      for (const tri of mesh.triangles) {
-        for (const pt of tri) {
-          positions.push(pt[0], pt[1], pt[2]);
-          colors.push(c.r, c.g, c.b);
+      {/* 对比参考光环 */}
+      {layers.contrastRef && colorPoints.map((pt) =>
+        haloKeys.has(pt.key) && (
+          <mesh key={pt.key} position={pt.designPos}>
+            <ringGeometry args={[0.025, 0.03, 24]} />
+            <meshBasicMaterial
+              color={0xb7791f}
+              side={THREE.DoubleSide}
+              transparent
+              opacity={0.8}
+            />
+          </mesh>
+        )
+      )}
+    </group>
+  );
+}
+
+/**
+ * 连接线组件
+ */
+function ConnectionLines({ colorPoints }: { colorPoints: ColorPointData3D[] }) {
+  const lines = useMemo(() => {
+    return colorPoints.map((pt) => ({
+      points: [pt.designPos, pt.mappedPos] as [Point3, Point3],
+    }));
+  }, [colorPoints]);
+
+  return (
+    <group>
+      {lines.map((line, i) => (
+        <Line
+          key={i}
+          points={[line.points[0], line.points[1]]}
+          color="#666666"
+          lineWidth={1}
+          transparent
+          opacity={0.5}
+          dashed
+          dashSize={0.015}
+          gapSize={0.01}
+        />
+      ))}
+    </group>
+  );
+}
+
+/**
+ * Dirty Zone 点组件
+ */
+function DirtyDots({ dirtyDots }: { dirtyDots: { key: string; pos: Point3 }[] }) {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+
+  useEffect(() => {
+    if (!meshRef.current) return;
+    const d = new THREE.Object3D();
+    dirtyDots.forEach((dot, i) => {
+      d.position.set(...dot.pos);
+      d.updateMatrix();
+      meshRef.current!.setMatrixAt(i, d.matrix);
+    });
+    meshRef.current.instanceMatrix.needsUpdate = true;
+  }, [dirtyDots]);
+
+  return (
+    <instancedMesh ref={meshRef} args={[undefined, undefined, dirtyDots.length]}>
+      <sphereGeometry args={[0.006, 6, 6]} />
+      <meshBasicMaterial color={0x8a5a12} transparent opacity={0.55} />
+    </instancedMesh>
+  );
+}
+
+/**
+ * Palette 轨迹线组件
+ */
+function PaletteTrail({ trail }: { trail: PaletteTrail3D }) {
+  if (trail.points.length < 2) return null;
+
+  return (
+    <Line
+      points={trail.points}
+      color="#666666"
+      lineWidth={1}
+      transparent
+      opacity={0.55}
+    />
+  );
+}
+
+/**
+ * 截面导向线组件
+ */
+function SectionGuide({ points }: { points: Point3[] }) {
+  return (
+    <Line
+      points={points}
+      color="#333333"
+      lineWidth={1.6}
+      transparent
+      opacity={0.85}
+    />
+  );
+}
+
+/**
+ * Volume 点云组件
+ */
+function VolumePoints({ points }: { points: NonNullable<ColorSpace3DProps["volumePoints"]> }) {
+  const meshRef = useRef<THREE.InstancedMesh>(null);
+
+  useEffect(() => {
+    if (!meshRef.current) return;
+    const vd = new THREE.Object3D();
+    const vc = new THREE.Color();
+
+    points.forEach((vp, i) => {
+      vd.position.set(vp.pos[0], vp.pos[1], vp.pos[2]);
+      const out = vp.gamut === "OUT_OF_GAMUT";
+      vd.scale.setScalar(out ? 0.7 : 1);
+      vd.updateMatrix();
+      meshRef.current!.setMatrixAt(i, vd.matrix);
+      
+      vc.set(vp.displayColor);
+      if (out) vc.multiplyScalar(0.55);
+      if (vp.dirty === "DIRTY") vc.lerp(new THREE.Color(0x8a5a12), 0.35);
+      meshRef.current!.setColorAt(i, vc);
+    });
+
+    meshRef.current.instanceMatrix.needsUpdate = true;
+    if (meshRef.current.instanceColor) {
+      meshRef.current.instanceColor.needsUpdate = true;
+    }
+  }, [points]);
+
+  return (
+    <instancedMesh ref={meshRef} args={[undefined, undefined, points.length]}>
+      <sphereGeometry args={[0.008, 6, 6]} />
+      <meshBasicMaterial color={0xffffff} />
+    </instancedMesh>
+  );
+}
+
+/**
+ * 切片平面组件
+ */
+function SlicePlane({ slice }: { slice: SliceDefinition }) {
+  const mesh = useMemo(() => buildSlicePlaneMesh(slice), [slice]);
+  if (!mesh) return null;
+
+  return <primitive object={mesh} />;
+}
+
+/**
+ * 候选标记组件
+ */
+function CandidateMarker({ position, color }: { position: Point3; color: string }) {
+  const torusRef = useRef<THREE.Mesh>(null);
+
+  // 动画效果
+  useFrame((state) => {
+    if (torusRef.current) {
+      torusRef.current.rotation.x = state.clock.elapsedTime * 0.5;
+      torusRef.current.rotation.y = state.clock.elapsedTime * 0.3;
+    }
+  });
+
+  return (
+    <group position={position}>
+      {/* 虚线环 */}
+      <mesh ref={torusRef}>
+        <torusGeometry args={[0.035, 0.003, 8, 32]} />
+        <meshBasicMaterial color={0x202631} transparent opacity={0.8} />
+      </mesh>
+      {/* 实心球 */}
+      <mesh>
+        <sphereGeometry args={[0.016, 16, 16]} />
+        <meshBasicMaterial color={color} />
+      </mesh>
+    </group>
+  );
+}
+
+/**
+ * 纬度环组件（OKLab 模型）— 在固定 L 值处绘制水平圆环并标注。
+ */
+function LatitudeRings() {
+  const rings = [
+    { l: 0.75, label: "L=0.75", z: 0.25 },
+    { l: 0.50, label: "L=0.50 (Midtone)", z: 0 },
+    { l: 0.25, label: "L=0.25", z: -0.25 },
+    { l: 0.00, label: "L=0.00 (Black)", z: -0.5 },
+  ];
+  const radius = 0.30;
+
+  return (
+    <group>
+      {rings.map(({ l, label, z }) => {
+        const pts: Point3[] = [];
+        for (let i = 0; i <= 72; i++) {
+          const angle = (i / 72) * Math.PI * 2;
+          pts.push([Math.cos(angle) * radius, Math.sin(angle) * radius, z]);
         }
-      }
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute(
-        "position",
-        new THREE.Float32BufferAttribute(positions, 3),
-      );
-      geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
-      const mat = new THREE.MeshBasicMaterial({
-        vertexColors: true,
-        transparent: true,
-        opacity: 0.035,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      });
-      group.add(new THREE.Mesh(geo, mat));
-      // Wireframe overlay
-      const wireMat = new THREE.MeshBasicMaterial({
-        vertexColors: true,
-        wireframe: true,
-        transparent: true,
-        opacity: 0.12,
-        depthWrite: false,
-      });
-      group.add(new THREE.Mesh(geo.clone(), wireMat));
-    }
-
-    // ── Color points (InstancedMesh) ────────────────────────────────────
-    if (colorPoints.length > 0) {
-      // Design source → spheres
-      const sphereGeo = new THREE.SphereGeometry(0.018, 12, 12);
-      const sphereMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-      const designMesh = new THREE.InstancedMesh(
-        sphereGeo,
-        sphereMat,
-        colorPoints.length,
-      );
-      const dummy = new THREE.Object3D();
-      const tmpColor = new THREE.Color();
-      colorPoints.forEach((pt, i) => {
-        dummy.position.set(...pt.designPos);
-        dummy.updateMatrix();
-        designMesh.setMatrixAt(i, dummy.matrix);
-        tmpColor.set(pt.designColor);
-        designMesh.setColorAt(i, tmpColor);
-      });
-      designMesh.instanceMatrix.needsUpdate = true;
-      if (designMesh.instanceColor) designMesh.instanceColor.needsUpdate = true;
-      group.add(designMesh);
-      designMeshRef.current = designMesh;
-
-      // Mapped → boxes
-      const boxGeo = new THREE.BoxGeometry(0.018, 0.018, 0.018);
-      const boxMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-      const mappedMesh = new THREE.InstancedMesh(
-        boxGeo,
-        boxMat,
-        colorPoints.length,
-      );
-      colorPoints.forEach((pt, i) => {
-        dummy.position.set(...pt.mappedPos);
-        dummy.updateMatrix();
-        mappedMesh.setMatrixAt(i, dummy.matrix);
-        tmpColor.set(pt.mappedColor);
-        mappedMesh.setColorAt(i, tmpColor);
-      });
-      mappedMesh.instanceMatrix.needsUpdate = true;
-      if (mappedMesh.instanceColor) mappedMesh.instanceColor.needsUpdate = true;
-      group.add(mappedMesh);
-      mappedMeshRef.current = mappedMesh;
-
-      // Dashed lines: design → mapped
-      const linePositions: number[] = [];
-      const lineColors: number[] = [];
-      const gray = new THREE.Color("#666");
-      for (const pt of colorPoints) {
-        linePositions.push(...pt.designPos, ...pt.mappedPos);
-        lineColors.push(gray.r, gray.g, gray.b, gray.r, gray.g, gray.b);
-      }
-      const lineGeo = new THREE.BufferGeometry();
-      lineGeo.setAttribute(
-        "position",
-        new THREE.Float32BufferAttribute(linePositions, 3),
-      );
-      lineGeo.setAttribute(
-        "color",
-        new THREE.Float32BufferAttribute(lineColors, 3),
-      );
-      const lineMat = new THREE.LineDashedMaterial({
-        vertexColors: true,
-        dashSize: 0.015,
-        gapSize: 0.01,
-        transparent: true,
-        opacity: 0.5,
-      });
-      const lines = new THREE.LineSegments(lineGeo, lineMat);
-      lines.computeLineDistances();
-      group.add(lines);
-
-      // Contrast halos
-      if (layers.contrastRef) {
-        for (const pt of colorPoints) {
-          if (!haloKeys.has(pt.key)) continue;
-          const ringGeo = new THREE.RingGeometry(0.025, 0.03, 24);
-          const ringMat = new THREE.MeshBasicMaterial({
-            color: 0xb7791f,
-            side: THREE.DoubleSide,
-            transparent: true,
-            opacity: 0.8,
-          });
-          const ring = new THREE.Mesh(ringGeo, ringMat);
-          ring.position.set(...pt.designPos);
-          group.add(ring);
-        }
-      }
-    }
-
-    // ── Dirty zone dots ─────────────────────────────────────────────────
-    if (layers.dirtyZone && dirtyDots.length > 0) {
-      const dotGeo = new THREE.SphereGeometry(0.006, 6, 6);
-      const dotMat = new THREE.MeshBasicMaterial({
-        color: 0x8a5a12,
-        transparent: true,
-        opacity: 0.55,
-      });
-      const dotMesh = new THREE.InstancedMesh(dotGeo, dotMat, dirtyDots.length);
-      const d = new THREE.Object3D();
-      dirtyDots.forEach((dot, i) => {
-        d.position.set(...dot.pos);
-        d.updateMatrix();
-        dotMesh.setMatrixAt(i, d.matrix);
-      });
-      dotMesh.instanceMatrix.needsUpdate = true;
-      group.add(dotMesh);
-    }
-
-    // ── Palette trail lines ─────────────────────────────────────────────
-    if (layers.paletteTrail) {
-      for (const trail of paletteTrails) {
-        if (trail.points.length < 2) continue;
-        const pts = trail.points.map(
-          (p) => new THREE.Vector3(p[0], p[1], p[2]),
+        return (
+          <group key={l}>
+            <Line
+              points={pts}
+              color="#8083ff"
+              lineWidth={1.2}
+              transparent
+              opacity={0.45}
+              dashed
+              dashSize={0.025}
+              gapSize={0.015}
+            />
+            <Html position={[-radius - 0.08, 0, z]} center>
+              <span style={{
+                fontSize: 10,
+                color: "#b0aec8",
+                whiteSpace: "nowrap",
+                fontFamily: "JetBrains Mono",
+                background: "rgba(15,17,24,0.7)",
+                padding: "1px 4px",
+                borderRadius: 3,
+              }}>
+                {label}
+              </span>
+            </Html>
+          </group>
         );
-        const geo = new THREE.BufferGeometry().setFromPoints(pts);
-        const mat = new THREE.LineBasicMaterial({
-          color: 0x666666,
-          transparent: true,
-          opacity: 0.55,
-        });
-        group.add(new THREE.Line(geo, mat));
-      }
-    }
+      })}
+    </group>
+  );
+}
 
-    // ── Section guide line ──────────────────────────────────────────────
-    if (crossSection && sectionGuide && sectionGuide.length >= 2) {
-      const pts = sectionGuide.map(
-        (p) => new THREE.Vector3(p[0], p[1], p[2]),
-      );
-      const geo = new THREE.BufferGeometry().setFromPoints(pts);
-      const mat = new THREE.LineBasicMaterial({
-        color: 0x333333,
-        transparent: true,
-        opacity: 0.85,
-        linewidth: 1.6,
-      });
-      group.add(new THREE.Line(geo, mat));
-    }
+/**
+ * 坐标轴组件
+ */
+function Axes({ model, layers }: { model: string; layers: ColorSpace3DProps["layers"] }) {
+  const axisColor = "#666680";
 
-    // ── UX-02 §5–§8：Volume 点云（InstancedMesh 批量渲染）─────────────────
-    // 每个采样点以小球呈现；OUT_OF_GAMUT 使用 gamut visualization style（§50/§51），
-    // 不伪装成合法颜色；DIRTY 点叠加暗色描边提示（§13 Dirty Zone Overlay）。
-    if (volumePoints && volumePoints.length > 0) {
-      const vGeo = new THREE.SphereGeometry(0.008, 6, 6);
-      const vMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-      const vMesh = new THREE.InstancedMesh(vGeo, vMat, volumePoints.length);
-      const vd = new THREE.Object3D();
-      const vc = new THREE.Color();
-      volumePoints.forEach((vp, i) => {
-        vd.position.set(vp.pos[0], vp.pos[1], vp.pos[2]);
-        // OUT_OF_GAMUT 点半透明以示“存在于感知空间但设备无法表达”（§35/§51）。
-        const out = vp.gamut === "OUT_OF_GAMUT";
-        vd.scale.setScalar(out ? 0.7 : 1);
-        vd.updateMatrix();
-        vMesh.setMatrixAt(i, vd.matrix);
-        vc.set(vp.displayColor);
-        if (out) vc.multiplyScalar(0.55); // gamut visualization style
-        if (vp.dirty === "DIRTY") vc.lerp(new THREE.Color(0x8a5a12), 0.35);
-        vMesh.setColorAt(i, vc);
-      });
-      vMesh.instanceMatrix.needsUpdate = true;
-      if (vMesh.instanceColor) vMesh.instanceColor.needsUpdate = true;
-      group.add(vMesh);
-      volumeMeshRef.current = vMesh;
-    }
-
-    // ── UX-02 §29：Slice Plane（3D 中显示当前切片平面）──────────────────
-    // 平面以半透明四边形呈现，法向与 §30 sliceToPlane 一致（世界坐标）。
-    if (slice) {
-      const planeMesh = buildSlicePlaneMesh(slice);
-      if (planeMesh) group.add(planeMesh);
-    }
-
-    // ── Candidate marker ────────────────────────────────────────────────
-    if (candidatePos) {
-      // Dashed ring (torus)
-      const torusGeo = new THREE.TorusGeometry(0.035, 0.003, 8, 32);
-      const torusMat = new THREE.MeshBasicMaterial({
-        color: 0x202631,
-        transparent: true,
-        opacity: 0.8,
-      });
-      const torus = new THREE.Mesh(torusGeo, torusMat);
-      torus.position.set(...candidatePos);
-      group.add(torus);
-      // Solid sphere
-      const sGeo = new THREE.SphereGeometry(0.016, 16, 16);
-      const sMat = new THREE.MeshBasicMaterial({ color: candidateColor });
-      const s = new THREE.Mesh(sGeo, sMat);
-      s.position.set(...candidatePos);
-      group.add(s);
-    }
-
-    // ── Axes ────────────────────────────────────────────────────────────
-    const axisColor = 0x999999;
+  if (model === "oklab" || model === "lab") {
     const axes: { name: string; end: Point3 }[] =
       model === "lab"
         ? [
@@ -603,142 +697,109 @@ export function ColorSpace3D({
             { name: "L", end: [0, 0, 0.55] },
           ];
 
-    if (model === "oklab" || model === "lab") {
-      for (const axis of axes) {
-        if (
-          !layers.lightnessGrid &&
-          (axis.name === "L" || axis.name === "L*")
-        )
-          continue;
-        const pts = [
-          new THREE.Vector3(0, 0, 0),
-          new THREE.Vector3(...axis.end),
-        ];
-        const geo = new THREE.BufferGeometry().setFromPoints(pts);
-        const mat = new THREE.LineBasicMaterial({ color: axisColor });
-        group.add(new THREE.Line(geo, mat));
-        // HTML label at axis end
-        addHtmlLabel(axis.name, new THREE.Vector3(...axis.end));
-      }
-    } else {
-      // OKLCH / LCH: hue ring lines + lightness grid circles
-      const isCie = model === "lch";
-      // Lightness grid circles
-      if (layers.lightnessGrid) {
-        for (const l of [0, 0.25, 0.5, 0.75, 1]) {
-          const pts: THREE.Vector3[] = [];
-          for (let i = 0; i <= 72; i++) {
-            const h = i * 5;
-            const oklch = isCie
-              ? cieLchToPos(l * 100, 50, h, model)
-              : { l, c: 0.3, h };
-            pts.push(
-              new THREE.Vector3(
-                ...positionGeneric(oklch as OKLCH, model as any),
-              ),
-            );
+    return (
+      <group>
+        {axes.map((axis) => {
+          if (!layers.lightnessGrid && (axis.name === "L" || axis.name === "L*")) {
+            return null;
           }
-          const geo = new THREE.BufferGeometry().setFromPoints(pts);
-          const mat = new THREE.LineBasicMaterial({
-            color: axisColor,
-            transparent: true,
-            opacity: 0.35,
-          });
-          group.add(new THREE.Line(geo, mat));
-        }
-      }
-      // Hue ring radial lines
-      if (layers.hueRing) {
-        for (const h of [0, 60, 120, 180, 240, 300]) {
-          const pts: THREE.Vector3[] = [];
-          const startOk = isCie
-            ? cieLchToPos(0, 50, h, model)
-            : { l: 0, c: 0.3, h };
-          const endOk = isCie
-            ? cieLchToPos(100, 50, h, model)
-            : { l: 1, c: 0.3, h };
-          pts.push(
-            new THREE.Vector3(0, 0, 0),
-            new THREE.Vector3(...positionGeneric(startOk as OKLCH, model as any)),
-            new THREE.Vector3(...positionGeneric(endOk as OKLCH, model as any)),
+          return (
+            <group key={axis.name}>
+              <Line
+                points={[[0, 0, 0], axis.end]}
+                color={axisColor}
+                lineWidth={1}
+              />
+              <Html position={axis.end} center>
+                <span style={{ fontSize: 11, color: "#b0aec8", whiteSpace: "nowrap", background: "rgba(15,17,24,0.7)", padding: "1px 3px", borderRadius: 2 }}>
+                  {axis.name}
+                </span>
+              </Html>
+            </group>
           );
-          const geo = new THREE.BufferGeometry().setFromPoints(pts);
-          const mat = new THREE.LineBasicMaterial({
-            color: axisColor,
-            transparent: true,
-            opacity: 0.35,
-          });
-          group.add(new THREE.Line(geo, mat));
-          // Label
-          const labelOk = isCie
-            ? cieLchToPos(0, 57.5, h, model)
-            : { l: 0, c: 0.32, h };
-          addHtmlLabel(
-            `${h}°`,
-            new THREE.Vector3(
-              ...positionGeneric(labelOk as OKLCH, model as any),
-            ),
-          );
-        }
-      }
-      // Model description label
-      addHtmlLabel(
-        model === "oklch" ? "L ↑ · C 径向 · H 环绕" : "L* ↑ · C* 径向 · h° 环绕",
-        new THREE.Vector3(-0.3, 0.4, 0),
-      );
-    }
+        })}
+      </group>
+    );
+  }
 
-    function addHtmlLabel(text: string, pos3D: THREE.Vector3) {
-      if (!labelContainerRef.current) return;
-      const el = document.createElement("span");
-      el.textContent = text;
-      el.style.cssText =
-        "position:absolute;font-size:11px;color:#666;white-space:nowrap;transform:translate(-50%,-50%);pointer-events:none;";
-      labelContainerRef.current.appendChild(el);
-      const items = (labelContainerRef.current as any).__cusLabels as
-        | { el: HTMLSpanElement; pos: THREE.Vector3 }[]
-        | undefined;
-      if (items) items.push({ el, pos: pos3D });
-    }
-  }, [
-    gamutMeshes,
-    colorPoints,
-    dirtyDots,
-    paletteTrails,
-    sectionGuide,
-    candidatePos,
-    candidateColor,
-    model,
-    layers,
-    surfaces,
-    crossSection,
-    haloKeys,
-    volumePoints,
-    slice,
-  ]);
+  // OKLCH / LCH: 色相环 + 明度网格
+  const isCie = model === "lch";
 
   return (
-    <div
-      ref={containerRef}
-      className="space-3d"
-      style={{ position: "relative", width: "100%", height: 620 }}
-      role="img"
-      aria-label={`${model} 三维色彩空间`}
-      tabIndex={0}
-    />
+    <group>
+      {/* 明度网格圆 */}
+      {layers.lightnessGrid && [0, 0.25, 0.5, 0.75, 1].map((l) => {
+        const pts: Point3[] = [];
+        for (let i = 0; i <= 72; i++) {
+          const h = i * 5;
+          const oklch = isCie
+            ? cieLchToPos(l * 100, 50, h, model)
+            : { l, c: 0.3, h };
+          pts.push(positionGeneric(oklch as OKLCH, model as any));
+        }
+        return (
+          <Line
+            key={l}
+            points={pts}
+            color={axisColor}
+            lineWidth={1}
+            transparent
+            opacity={0.35}
+          />
+        );
+      })}
+
+      {/* 色相环径向线 */}
+      {layers.hueRing && [0, 60, 120, 180, 240, 300].map((h) => {
+        const startOk = isCie
+          ? cieLchToPos(0, 50, h, model)
+          : { l: 0, c: 0.3, h };
+        const endOk = isCie
+          ? cieLchToPos(100, 50, h, model)
+          : { l: 1, c: 0.3, h };
+        const pts: Point3[] = [
+          [0, 0, 0],
+          positionGeneric(startOk as OKLCH, model as any),
+          positionGeneric(endOk as OKLCH, model as any),
+        ];
+        
+        const labelOk = isCie
+          ? cieLchToPos(0, 57.5, h, model)
+          : { l: 0, c: 0.32, h };
+        const labelPos = positionGeneric(labelOk as OKLCH, model as any);
+
+        return (
+          <group key={h}>
+            <Line
+              points={pts}
+              color={axisColor}
+              lineWidth={1}
+              transparent
+              opacity={0.35}
+            />
+            <Html position={labelPos} center>
+              <span style={{ fontSize: 11, color: "#b0aec8", whiteSpace: "nowrap", background: "rgba(15,17,24,0.7)", padding: "1px 3px", borderRadius: 2 }}>
+                {h}°
+              </span>
+            </Html>
+          </group>
+        );
+      })}
+
+      {/* 模型说明标签 */}
+      <Html position={[-0.3, 0.4, 0]} center>
+        <span style={{ fontSize: 11, color: "#b0aec8", whiteSpace: "nowrap", background: "rgba(15,17,24,0.7)", padding: "1px 4px", borderRadius: 3 }}>
+          {model === "oklch" ? "L ↑ · C 径向 · H 环绕" : "L* ↑ · C* 径向 · h° 环绕"}
+        </span>
+      </Html>
+    </group>
   );
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── 辅助函数 ─────────────────────────────────────────────────────────────────
 
 /**
- * UX-02 §18–§19：将世界空间射线转换为 §14 OKLab 空间（X=a, Y=L, Z=b）后
- * 与 Volume / Slice 平面求交，返回连续 OKLab 坐标。
- *
- * Designer 的 oklab 投影为 position(lab) = [2a, 2b, l-0.5]（世界坐标），
- * 其逆变换为 a=wx/2, b=wy/2, l=wz+0.5。方向向量不受平移影响，仅受缩放影响。
- * 若提供了切片定义，优先与切片平面求交（§18：Slice Intersection）；
- * 否则与整个 Volume 包围盒求交（§18：Volume Intersection）。
+ * UX-02 §18–§19：将世界空间射线转换为 OKLab 空间后与 Volume / Slice 平面求交。
  */
 function pickOklabFromRay(
   ray: THREE.Ray,
@@ -746,7 +807,6 @@ function pickOklabFromRay(
 ): Oklab | null {
   const o = ray.origin;
   const d = ray.direction;
-  // 世界 → §14（X=a, Y=L, Z=b）。
   const ray14 = {
     origin: [o.x / 2, o.z + 0.5, o.y / 2] as [number, number, number],
     direction: [d.x / 2, d.z, d.y / 2] as [number, number, number],
@@ -760,18 +820,14 @@ function pickOklabFromRay(
 
 /**
  * UX-02 §29/§30：构造切片平面的世界坐标网格。
- *
- * Designer oklab 投影：worldX=2a, worldY=2b, worldZ=l-0.5。
- * - axis="L"（固定 l）：worldZ=value-0.5，平面展开于 worldX×worldY。
- * - axis="a"（固定 a）：worldX=2·value，平面展开于 worldY×worldZ。
- * - axis="b"（固定 b）：worldY=2·value，平面展开于 worldX×worldZ。
  */
 function buildSlicePlaneMesh(slice: SliceDefinition): THREE.Mesh | null {
-  const A = OKLAB_BOUNDS.a[1] * 2; // 0.8
-  const B = OKLAB_BOUNDS.b[1] * 2; // 0.8
-  const L0 = OKLAB_BOUNDS.l[0] - 0.5; // -0.5
-  const L1 = OKLAB_BOUNDS.l[1] - 0.5; // 0.5
+  const A = OKLAB_BOUNDS.a[1] * 2;
+  const B = OKLAB_BOUNDS.b[1] * 2;
+  const L0 = OKLAB_BOUNDS.l[0] - 0.5;
+  const L1 = OKLAB_BOUNDS.l[1] - 0.5;
   let corners: [number, number, number][];
+
   if (slice.axis === "L") {
     const z = slice.value - 0.5;
     corners = [
@@ -797,12 +853,13 @@ function buildSlicePlaneMesh(slice: SliceDefinition): THREE.Mesh | null {
       [-A, y, L1],
     ];
   }
+
   const positions: number[] = [];
-  // 两个三角形组成四边形（0-1-2, 0-2-3）。
   for (const idx of [0, 1, 2, 0, 2, 3]) {
     const c = corners[idx];
     positions.push(c[0], c[1], c[2]);
   }
+
   const geo = new THREE.BufferGeometry();
   geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   const mat = new THREE.MeshBasicMaterial({
@@ -813,7 +870,8 @@ function buildSlicePlaneMesh(slice: SliceDefinition): THREE.Mesh | null {
     depthWrite: false,
   });
   const mesh = new THREE.Mesh(geo, mat);
-  // 平面边框（§29：用户可识别切片位置）。
+
+  // 平面边框
   const edgeGeo = new THREE.BufferGeometry().setFromPoints([
     new THREE.Vector3(...corners[0]),
     new THREE.Vector3(...corners[1]),
@@ -828,63 +886,14 @@ function buildSlicePlaneMesh(slice: SliceDefinition): THREE.Mesh | null {
   });
   const edges = new THREE.Line(edgeGeo, edgeMat);
   mesh.add(edges);
+
   return mesh;
-}
-
-function updateHtmlLabels(
-  camera: THREE.Camera,
-  container: HTMLDivElement,
-  items: { el: HTMLSpanElement; pos: THREE.Vector3 }[],
-) {
-  const w = container.clientWidth;
-  const h = container.clientHeight;
-  // Clamp labels within container bounds (with padding to prevent clipping).
-  const padX = Math.min(40, w * 0.1);
-  const padY = Math.min(30, h * 0.08);
-  for (const item of items) {
-    const v = item.pos.clone().project(camera);
-    const rawX = ((v.x + 1) / 2) * w;
-    const rawY = ((-v.y + 1) / 2) * h;
-    const x = Math.max(padX, Math.min(w - padX, rawX));
-    const y = Math.max(padY, Math.min(h - padY, rawY));
-    item.el.style.left = `${x}px`;
-    item.el.style.top = `${y}px`;
-    item.el.style.display = v.z > 1 ? "none" : "";
-  }
-}
-
-function disposeObject(obj: THREE.Object3D) {
-  obj.traverse?.((child: any) => {
-    child.geometry?.dispose();
-    if (child.material) {
-      if (Array.isArray(child.material)) {
-        child.material.forEach((m: any) => m.dispose());
-      } else {
-        child.material.dispose();
-      }
-    }
-  });
-  if ((obj as any).geometry) (obj as any).geometry.dispose();
-  if ((obj as any).material) {
-    if (Array.isArray((obj as any).material)) {
-      (obj as any).material.forEach((m: any) => m.dispose());
-    } else {
-      (obj as any).material.dispose();
-    }
-  }
 }
 
 /**
  * CIELCh → 3D position for OKLCH/LCH views.
- * Mirrors the `position()` function from ColorSpaceView.
  */
-function cieLchToPos(
-  l: number,
-  c: number,
-  h: number,
-  model: string,
-): Point3 {
-  // Simplified: for LCH view, use cylindrical coordinates
+function cieLchToPos(l: number, c: number, h: number, model: string): Point3 {
   const rad = (h * Math.PI) / 180;
   if (model === "lch") {
     return [
@@ -893,7 +902,6 @@ function cieLchToPos(
       l / 100 - 0.5,
     ];
   }
-  // OKLCH
   return [
     (c / 100) * Math.cos(rad) * 2,
     (c / 100) * Math.sin(rad) * 2,

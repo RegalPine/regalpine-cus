@@ -15,10 +15,12 @@ import { usePreviewSpace } from "../components/PreviewSpace";
 import { renderColor, colorDesign, deltaEOK, oklchToOklab } from "@cus/color";
 import { resolveToken } from "@cus/theme";
 import { ColorSwatch } from "@cus/ui";
+import { useT } from "../i18n";
 
 function ModeDifference({ light, dark }: { light?: V2Color; dark?: V2Color }) {
   const space = usePreviewSpace();
-  if (!light || !dark) return <span>不适用：主题未生成</span>;
+  const t = useT();
+  if (!light || !dark) return <span>{t("panel.notApplicable")}</span>;
   const a = colorDesign(light),
     b = colorDesign(dark);
   const h =
@@ -29,7 +31,7 @@ function ModeDifference({ light, dark }: { light?: V2Color; dark?: V2Color }) {
       <i style={{ background: renderColor(dark, space) }} /> Dark
       <br />
       ΔL {(b.l - a.l).toFixed(4)} · ΔC {(b.c - a.c).toFixed(4)} · ΔH{" "}
-      {h === null ? "不适用" : h.toFixed(2) + "°"} · ΔEOK{" "}
+      {h === null ? t("panel.notApplicableShort") : h.toFixed(2) + "°"} · ΔEOK{" "}
       {deltaEOK(oklchToOklab(a), oklchToOklab(b)).toFixed(4)}
     </span>
   );
@@ -43,15 +45,13 @@ export function PalettePanel({
   onSelect: (name: string, color: V2Color) => void;
 }) {
   const space = usePreviewSpace();
+  const t = useT();
   const labels = {
-    primary: ["品牌色阶", "PRIMARY"],
-    secondary: ["次级色阶", "SECONDARY"],
-    accent: ["强调色阶", "ACCENT"],
-    neutral: ["中性色阶", "NEUTRAL"],
+    primary: [t("panel.primary"), "PRIMARY"],
+    secondary: [t("panel.secondary"), "SECONDARY"],
+    accent: [t("panel.accent"), "ACCENT"],
+    neutral: [t("panel.neutral"), "NEUTRAL"],
   } as const;
-  // Neutral 最多 13 阶，作为统一列数基准；11 阶家族每色块跨 13/11≈1.18 列
-  // 实际用 CSS grid + span 实现：11 阶中前 7 个占 1 列、后 4 个占 2 列 → 7+8=15 > 13
-  // 改用 flexbox + 固定宽度方案更简洁
   return (
     <div className="palette-panel">
       {(["primary", "secondary", "accent", "neutral"] as const).map((name) => {
@@ -79,7 +79,7 @@ export function PalettePanel({
         );
       })}
       <div className="semantic-strip">
-        <span>语义色</span>
+        <span>{t("panel.semantic")}</span>
         {SEMANTIC_ROLES.map((role) => (
           <button
             key={role}
@@ -98,7 +98,7 @@ export function PalettePanel({
             {role}
           </button>
         ))}
-        <span className="strip-note">点击色块查看色度数据 ↗</span>
+        <span className="strip-note">{t("panel.clickHint")}</span>
       </div>
     </div>
   );
@@ -210,15 +210,16 @@ export function TokenPanel({
   const space = usePreviewSpace();
   const [query, setQuery] = useState("");
   const tokens = result.theme[mode] ?? result.theme.light ?? result.theme.dark!;
+  const t = useT();
   return (
     <section className="token-panel">
       <div className="section-heading">
-        <h3>Token 引用关系</h3>
+        <h3>{t("panel.tokenRef")}</h3>
       </div>
       <input
         className="search-input"
-        aria-label="搜索 Token"
-        placeholder="搜索 Token，例如 button、surface…"
+        aria-label={t("panel.searchToken")}
+        placeholder={t("panel.searchPlaceholder")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
@@ -226,10 +227,10 @@ export function TokenPanel({
         <table>
           <thead>
             <tr>
-              <th>Token</th>
-              <th>引用</th>
-              <th>渲染值</th>
-              <th>Light → Dark 设计差异</th>
+              <th>{t("panel.tokenCol")}</th>
+              <th>{t("panel.refCol")}</th>
+              <th>{t("panel.renderCol")}</th>
+              <th>{t("panel.diffCol")}</th>
             </tr>
           </thead>
           <tbody>
@@ -304,6 +305,7 @@ export function ValidationPanel({ report }: { report: ValidationReport }) {
     "Component",
     "Hue",
   ];
+  const t = useT();
   const results = report.results.filter(
     (r) =>
       filter === "all" ||
@@ -314,14 +316,14 @@ export function ValidationPanel({ report }: { report: ValidationReport }) {
       <div className="section-heading">
         <div>
           <span className="eyebrow">VALIDATION</span>
-          <h3>质量验证</h3>
+          <h3>{t("panel.validationTitle")}</h3>
         </div>
         <button
           className="text-button"
           onClick={() => setExpanded(!expanded)}
           aria-expanded={expanded}
         >
-          {expanded ? "收起报告 ↑" : "查看报告 ↗"}
+          {expanded ? t("panel.collapseReport") : t("panel.expandReport")}
         </button>
       </div>
       <div className="validation-categories">
@@ -351,28 +353,28 @@ export function ValidationPanel({ report }: { report: ValidationReport }) {
       </div>
       <div className="validation-summary">
         <span>
-          <b>{report.counts.PASS}</b> 项通过 · <b>{report.counts.WARN}</b>{" "}
-          项提示 · <b>{report.counts.FAIL}</b> 项失败
+          <b>{report.counts.PASS}</b> {t("panel.passCount")} <b>{report.counts.WARN}</b>{" "}
+          {t("panel.warnCount")} <b>{report.counts.FAIL}</b> {t("panel.failCount")}
         </span>
-        <span>ΔEOK · ΔE00 · sRGB / P3（P3 非完整 WCAG 认证）</span>
+        <span>{t("panel.p3Note")}</span>
       </div>
       {expanded && (
         <div className="validation-report">
           <div className="report-toolbar">
             <label>
-              筛选{" "}
+              {t("panel.filter")}{" "}
               <select
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
               >
-                <option value="issues">仅提示与失败</option>
-                <option value="all">全部检查</option>
+                <option value="issues">{t("panel.filterIssues")}</option>
+                <option value="all">{t("panel.filterAll")}</option>
                 {categories.map((c) => (
                   <option key={c}>{c}</option>
                 ))}
               </select>
             </label>
-            <span>{results.length} 项检查</span>
+            <span>{results.length} {t("panel.checkCount")}</span>
           </div>
           <ul>
             {results.length ? (
@@ -391,7 +393,7 @@ export function ValidationPanel({ report }: { report: ValidationReport }) {
                 </li>
               ))
             ) : (
-              <li>没有提示或失败。</li>
+              <li>{t("panel.noIssues")}</li>
             )}
           </ul>
         </div>
@@ -415,6 +417,7 @@ export function ExportPanel({
     (["light", "dark"] as const).filter((m) => !!result.theme[m]),
   );
   const output = result.options?.output ?? { srgb: true, displayP3: true };
+  const t = useT();
   const source = useMemo(
     () => exportTheme(result, format, { modes, output }),
     [result, format, modes, output],
@@ -429,22 +432,22 @@ export function ExportPanel({
     anchor.download = `cus-theme.${format}`;
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    notify(`已下载 ${format.toUpperCase()} 主题`);
+    notify(`${t("export.downloaded")} ${format.toUpperCase()} ${t("export.themeSuffix")}`);
   }
   return (
     <Modal
-      title="导出主题"
+      title={t("export.title")}
       onClose={onClose}
       className="export-modal"
     >
       <p className="muted">
-        导出保留 Primitive → Semantic → Component 三层引用关系。
+        {t("export.desc")}
       </p>
       <div className="export-toolbar">
         <ToggleGroup.Root
           type="single"
           className="segmented"
-          aria-label="导出格式"
+          aria-label={t("export.formatLabel")}
           value={format}
           onValueChange={(value) => {
             if (value === "css" || value === "json" || value === "ts")
@@ -462,7 +465,7 @@ export function ExportPanel({
             <label key={m}>
               <Checkbox.Root
                 className="cus-checkbox"
-                aria-label={m === "light" ? "浅色" : "深色"}
+                aria-label={m === "light" ? t("export.light") : t("export.dark")}
                 checked={modes.includes(m)}
                 disabled={
                   !result.theme[m] || (modes.length === 1 && modes.includes(m))
@@ -477,7 +480,7 @@ export function ExportPanel({
               >
                 <Checkbox.Indicator aria-hidden="true">✓</Checkbox.Indicator>
               </Checkbox.Root>
-              {m === "light" ? "浅色" : "深色"}
+              {m === "light" ? t("export.light") : t("export.dark")}
             </label>
           ))}
         </div>
@@ -499,20 +502,20 @@ export function ExportPanel({
             {target}
           </label>
         ))}
-        <span>sRGB 回退始终保留</span>
+        <span>{t("export.srgbFallback")}</span>
       </div>
       <textarea
         className="export-source"
-        aria-label="导出代码"
+        aria-label={t("export.codeLabel")}
         readOnly
         value={source}
         spellCheck={false}
       />
       <p className="export-note">
         {result.validation.counts.FAIL
-          ? `注意：仍有 ${result.validation.counts.FAIL} 项验证失败，请检查后使用。`
-          : `验证：${result.validation.counts.PASS} 项通过，${result.validation.counts.WARN} 项提示。`}{" "}
-        JSON 可作为配置重新导入。
+          ? `${t("export.warning")}${result.validation.counts.FAIL}${t("export.failSuffix")}`
+          : `${t("export.passInfo")}${result.validation.counts.PASS}${t("export.passSuffix")}${result.validation.counts.WARN}${t("export.warnSuffix")}`}{" "}
+        {t("export.jsonHint")}
       </p>
       <div className="dialog-actions">
         <button
@@ -520,16 +523,16 @@ export function ExportPanel({
           onClick={async () => {
             try {
               await navigator.clipboard.writeText(source);
-              notify("代码已复制");
+              notify(t("export.copied"));
             } catch {
-              notify("无法访问剪贴板，请选择代码手动复制");
+              notify(t("export.clipboardFail"));
             }
           }}
         >
-          复制代码
+          {t("export.copyCode")}
         </button>
         <button className="primary-button" onClick={download}>
-          ↓ 下载主题
+          {t("export.download")}
         </button>
       </div>
     </Modal>

@@ -13,6 +13,23 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   font-size: 13px;
+
+  /* Material Symbols Outlined 图标渲染 */
+  .material-symbols-outlined {
+    font-family: "Material Symbols Outlined";
+    font-weight: normal;
+    font-style: normal;
+    font-size: 20px;
+    line-height: 1;
+    letter-spacing: normal;
+    text-transform: none;
+    display: inline-block;
+    white-space: nowrap;
+    word-wrap: normal;
+    direction: ltr;
+    -webkit-font-smoothing: antialiased;
+    vertical-align: middle;
+  }
   /* CUS-IMPLEMENTATION-03 §8：顶层 CUS 语义变量（Designer 工具自身 UI）。 */
   --cus-background: #f6f7f9;
   --cus-foreground: #202631;
@@ -42,68 +59,66 @@
   --muted: var(--cus-muted);
   --line: var(--cus-border);
 }
-* {
-  box-sizing: border-box;
-}
-body {
-  margin: 0;
-}
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
-button,
-a,
-input,
-select,
-textarea {
-  -webkit-tap-highlight-color: transparent;
-}
-button {
-  cursor: pointer;
-  color: inherit;
-}
-button {
-  border: 0;
-  background: none;
-}
-button:disabled {
-  cursor: not-allowed;
-}
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible,
-summary:focus-visible,
-.slider-thumb:focus-visible,
-[role="tabpanel"]:focus-visible {
-  outline: 3px solid var(--focus-ring);
-  outline-offset: 3px;
-}
-button,
-a {
-  touch-action: manipulation;
-}
-a {
-  color: inherit;
-  text-decoration: none;
-}
-h1,
-h2,
-h3,
-h4,
-p {
-  margin: 0;
-}
-code,
-.mono {
-  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
-}
-button,
-input {
-  min-width: 0;
+/* ── 所有 element-level reset 放入 @layer base，避免覆盖 Tailwind 工具类 ── */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    min-width: 0;
+  }
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    -webkit-tap-highlight-color: transparent;
+  }
+  button {
+    cursor: pointer;
+    color: inherit;
+    border: 0;
+    background: none;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  summary:focus-visible,
+  .slider-thumb:focus-visible,
+  [role="tabpanel"]:focus-visible {
+    outline: 3px solid var(--focus-ring);
+    outline-offset: 3px;
+  }
+  button,
+  a {
+    touch-action: manipulation;
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+  h1,
+  h2,
+  h3,
+  h4,
+  p {
+    margin: 0;
+  }
+  code,
+  .mono {
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  }
 }
 .cus-checkbox {
   display: inline-flex;
@@ -128,66 +143,47 @@ input {
 .cus-checkbox[data-disabled] {
   opacity: 0.5;
 }
-.app-shell {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-}
-.app-body {
-  display: grid;
-  grid-template-columns: 286px minmax(0, 1fr);
-  flex: 1;
-  align-items: start;
-}
-.app-header {
-  position: sticky;
-  top: 0;
-  height: 60px;
+
+/* ── CusSwitch — Radix Switch 可视化样式 ── */
+.cus-switch-root {
+  display: inline-flex;
+  align-items: center;
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border-bottom: 1px solid var(--line);
+  width: 36px;
+  height: 20px;
+  padding: 2px;
+  border-radius: 9999px;
+  background: #464554;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+.cus-switch-root:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.cus-switch-root[data-state="checked"] {
+  background: var(--cus-primary, #345bd6);
+}
+.cus-switch-root[data-disabled] {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.cus-switch-thumb {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
   background: #fff;
-  padding: 0 24px;
-  z-index: 5;
-  gap: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s ease;
 }
-.wordmark {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  white-space: nowrap;
+.cus-switch-root[data-state="checked"] .cus-switch-thumb {
+  transform: translateX(16px);
 }
-.wordmark b {
-  font-size: 19px;
-  letter-spacing: -0.8px;
-}
-.brand-symbol {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
-  background: var(--brand-symbol);
-  color: white;
-  font-size: 21px;
-  font-weight: 800;
-  line-height: 1;
-}
-.header-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.saved-dot {
-  display: inline-block;
-  background: var(--status-ok);
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-}
+
+/* ── CusToggle 补充样式（data-state 变体） ── */
+
 .primary-button,
 .outline-button {
   border-radius: 7px;
@@ -216,21 +212,7 @@ input {
 .outline-button:hover {
   background: #f3f5f9;
 }
-.sidebar {
-  position: sticky;
-  top: 60px;
-  height: calc(100vh - 60px);
-  overflow-y: auto;
-  background: #fff;
-  border-right: 1px solid var(--line);
-  padding: 20px 22px 16px;
-  display: flex;
-  flex-direction: column;
-}
-/* 固定高度侧栏内禁止 flex 子项被压缩，改为整体滚动。 */
-.sidebar > * {
-  flex-shrink: 0;
-}
+
 .eyebrow {
   display: block;
   color: var(--text-muted);
@@ -343,14 +325,6 @@ input {
   font-size: 11px;
   margin: 22px 0 12px;
 }
-.small-tag {
-  background: #f4f5f8;
-  border: 1px solid var(--line);
-  font-size: 11px;
-  padding: 3px 5px;
-  border-radius: 4px;
-  color: #7b8391;
-}
 .sliders {
   display: grid;
   gap: 20px;
@@ -388,30 +362,6 @@ input {
   cursor: pointer;
   touch-action: none;
   user-select: none;
-}
-.slider-track {
-  position: relative;
-  flex: 1;
-  height: 6px;
-  border-radius: 6px;
-}
-.slider-l {
-  background: linear-gradient(90deg, #161923, #f3f4f6);
-}
-.slider-c {
-  background: linear-gradient(90deg, #c8cbd2, #4465d9);
-}
-.slider-h {
-  background: linear-gradient(
-    90deg,
-    #c6626a,
-    #bea655,
-    #7cad73,
-    #5aafba,
-    #727bca,
-    #b06aa3,
-    #c6626a
-  );
 }
 .slider-thumb {
   display: block;
@@ -505,81 +455,7 @@ input {
   margin-left: auto;
   color: var(--icon-faint);
 }
-.sidebar-footer {
-  font-size: 11px;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding-top: 16px;
-}
-.unsaved-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #b57c31;
-}
-main {
-  padding: 22px 32px 0;
-  min-width: 0;
-  max-width: 1500px;
-  width: 100%;
-  margin: 0 auto;
-}
-.main-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px 16px;
-  margin: 0 0 14px;
-}
-.head-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 12px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: #fff;
-  font-size: 11px;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-.head-status i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-}
-.head-status i.ok {
-  background: var(--status-ok);
-}
-.head-status i.warn {
-  background: #c59a3c;
-}
-.head-status i.fail {
-  background: #b14551;
-}
-.main-heading h1 {
-  font-size: 17px;
-  font-weight: 650;
-  letter-spacing: -0.2px;
-}
-.workspace-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin: 0 0 14px;
-  border-bottom: 1px solid var(--line);
-  flex-wrap: wrap;
-}
-.toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-left: auto;
-}
+
 .density-control {
   display: inline-flex;
   align-items: center;
@@ -645,14 +521,6 @@ main {
   border-color: #dde1e8 !important;
   box-shadow: 0 1px 4px #12234a0d !important;
 }
-.preview-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 24px;
-}
-.preview-grid.split {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
 .validation-panel {
   margin-top: 20px;
   background: #fff;
@@ -684,29 +552,6 @@ main {
   gap: 8px;
   margin: 16px 0 14px;
 }
-.check-chip {
-  border: 1px solid #e5ece8;
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.pass {
-  color: #397d62;
-  background: #f3faf6;
-}
-.warn {
-  color: #a07529;
-  background: #fdf9ee;
-  border-color: #ede4ce;
-}
-.fail {
-  color: #b14551;
-  background: #fff3f3;
-  border-color: #ebcbd0;
-}
 .validation-summary {
   display: flex;
   justify-content: space-between;
@@ -722,20 +567,14 @@ main {
   margin-top: 18px;
   border-top: 1px solid var(--line);
 }
-.report-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 14px 0;
-  color: #8c96a5;
-  font-size: 10px;
-}
-select {
-  border: 1px solid var(--line);
-  border-radius: 5px;
-  padding: 7px;
-  background: white;
-  color: #667084;
+@layer base {
+  select {
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 7px;
+    background: white;
+    color: #667084;
+  }
 }
 .validation-report ul {
   max-height: 310px;
@@ -756,12 +595,6 @@ select {
 .validation-report li > span:nth-child(2) {
   flex: 1;
   overflow-wrap: anywhere;
-}
-.status-label {
-  display: inline-block;
-  font-size: 10px;
-  border-radius: 3px;
-  padding: 1px 5px;
 }
 .modal {
   position: fixed;
@@ -1100,21 +933,7 @@ select {
   white-space: nowrap;
   border: 0;
 }
-@media (min-width: 1500px) {
-  main {
-    padding: 28px 48px 0;
-  }
-}
 @media (max-width: 1180px) {
-  .app-body {
-    grid-template-columns: 252px minmax(0, 1fr);
-  }
-  .sidebar {
-    padding: 20px 18px 16px;
-  }
-  main {
-    padding: 28px 22px 0;
-  }
   .preset-colors {
     gap: 8px;
   }
@@ -1127,50 +946,11 @@ select {
   }
 }
 @media (max-width: 1000px) {
-  .preview-grid.split {
-    grid-template-columns: 1fr;
-  }
   .workspace-tabs {
     gap: 16px;
   }
 }
 @media (max-width: 700px) {
-  .app-body {
-    grid-template-columns: 1fr;
-  }
-  .sidebar {
-    position: static;
-    height: auto;
-    overflow: visible;
-  }
-  .app-header {
-    padding: 0 16px;
-    gap: 8px;
-  }
-  .wordmark {
-    gap: 8px;
-  }
-  .wordmark b {
-    font-size: 21px;
-  }
-  .header-actions {
-    gap: 6px;
-  }
-  .header-actions button {
-    padding: 8px 10px;
-    font-size: 10px;
-  }
-  .sidebar {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-    padding: 20px;
-  }
-  .sidebar-footer {
-    display: none;
-  }
-  .sidebar-section {
-    margin-top: 20px;
-  }
   .sliders {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 18px;
@@ -1185,14 +965,8 @@ select {
     width: 30px;
     height: 30px;
   }
-  main {
-    padding: 24px 16px 0;
-  }
   .workspace-tabs {
     gap: 20px;
-  }
-  .workspace-toolbar {
-    margin-top: 16px;
   }
   .workspace-tabs button {
     font-size: 10px;
@@ -1247,43 +1021,6 @@ select {
 }
 .space-controls details {
   max-width: 100%;
-}
-.space-panel {
-  padding: 20px;
-  border: 1px solid #e0e4eb;
-  background: #fff;
-  border-radius: 12px;
-}
-/* ── 全屏模式：覆盖面板样式以填满视口 ────────────────────────────── */
-.space-panel-fullscreen {
-  position: fixed !important;
-  inset: 0;
-  z-index: 50;
-  border: none;
-  border-radius: 0;
-  overflow-y: auto;
-  background: #fff;
-}
-.space-panel-fullscreen .space-3d {
-  height: 75vh !important;
-}
-.fullscreen-button {
-  margin-left: auto;
-}
-.space-svg {
-  display: block;
-  width: 100%;
-  max-height: 780px;
-  background: #f6f8fb;
-  touch-action: none;
-  cursor: grab;
-  border-radius: 8px;
-}
-.space-svg [role="button"] {
-  cursor: pointer;
-}
-.space-svg [role="button"]:focus {
-  outline: 2px solid #2457c5;
 }
 .inspector-css {
   white-space: pre-wrap;
@@ -1355,29 +1092,11 @@ select {
   height: 12px;
   border-radius: 3px;
 }
-.color-detail > .mode-difference {
-  margin-top: 8px;
-}
 .token-table td code {
   overflow-wrap: anywhere;
   white-space: normal;
 }
 @media (max-width: 600px) {
-  .space-panel {
-    padding: 10px;
-  }
-  .space-svg text {
-    font-size: 26px;
-  }
-  .space-panel .space-controls button,
-  .space-panel details button,
-  .space-panel details summary {
-    min-height: 44px;
-    min-width: 44px;
-  }
-  .space-panel details button {
-    font-size: 14px;
-  }
   .workspace-tabs {
     gap: 12px;
   }
@@ -1484,21 +1203,6 @@ select {
   font-weight: 600;
   border: 1px solid transparent;
 }
-.badge-ok {
-  background: #e5f4ee;
-  color: #1d7a55;
-  border-color: #bfe4d4;
-}
-.badge-warn {
-  background: #fdf3e2;
-  color: #93611a;
-  border-color: #f0d9ab;
-}
-.badge-fail {
-  background: #fbe9e9;
-  color: #a33a3a;
-  border-color: #efc4c4;
-}
 /* CUS-UX-02 §43：选色来源徽标（中性色，区别于状态徽标）。 */
 .badge-source {
   background: #eef1f6;
@@ -1513,47 +1217,6 @@ select {
   font-size: 12px;
   color: #46536b;
   cursor: pointer;
-}
-/* ── Switch 显式样式保障（防止 Tailwind 类未生成时开关不可见） ────── */
-.cus-switch-root {
-  display: inline-flex;
-  align-items: center;
-  width: 36px;
-  height: 20px;
-  border-radius: 999px;
-  border: 2px solid var(--cus-border);
-  position: relative;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background-color 0.15s, border-color 0.15s;
-  background-color: var(--cus-muted);
-  overflow: hidden;
-}
-.cus-switch-root[data-state="checked"] {
-  background-color: var(--cus-primary);
-  border-color: var(--cus-primary);
-}
-.cus-switch-root:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-.cus-switch-root:focus-visible {
-  outline: 2px solid var(--cus-focus);
-  outline-offset: 2px;
-}
-.cus-switch-thumb {
-  display: block;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-  transition: transform 0.15s;
-  transform: translateX(0);
-  pointer-events: none;
-}
-.cus-switch-root[data-state="checked"] .cus-switch-thumb {
-  transform: translateX(18px);
 }
 .candidate-preview {
   display: flex;

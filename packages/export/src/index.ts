@@ -13,7 +13,9 @@ import type {
   RGBSpace,
   OutputOptions,
 } from "@cus/core";
-import { resolvedTokens, resolveToken } from "@cus/theme";
+import { resolvedTokens } from "@cus/theme";
+import { exportTailwindV4 } from "./tailwind-v4";
+import { exportDTCGJson } from "./dtcg-json";
 
 export const CONFIG_MAX_BYTES = 10_000_000;
 function selectOutputs(value: unknown, p3: boolean): unknown {
@@ -27,7 +29,38 @@ function selectOutputs(value: unknown, p3: boolean): unknown {
   return value;
 }
 
-export type ExportFormat = "css" | "json" | "ts";
+/**
+ * 清理 V2Color 内部计算字段，仅保留用户面向的色彩数据。
+ * 导出 JSON/TS 不需要暴露引擎内部的坐标变换、色域映射策略等元数据。
+ */
+function cleanColorForExport(c: Record<string, unknown>): Record<string, unknown> {
+  const {
+    context: _ctx,
+    strategy: _st,
+    calculation: _calc,
+    provenance: _prov,
+    design: _des,
+    outputs: _out,
+    target: _tgt,
+    mapped: _map,
+    chromaReduction: _cr,
+    ...keep
+  } = c;
+  return keep;
+}
+
+/** 清理 ThemeTokens：仅清洗 primitive 层的 V2Color，semantic/component 为引用不变 */
+function cleanTokensForExport(tokens: ThemeTokens): ThemeTokens {
+  const cleanedPrimitive = {} as ThemeTokens["primitive"];
+  for (const [k, v] of Object.entries(tokens.primitive)) {
+    (cleanedPrimitive as Record<string, unknown>)[k] = cleanColorForExport(
+      v as unknown as Record<string, unknown>,
+    );
+  }
+  return { ...tokens, primitive: cleanedPrimitive };
+}
+
+export type ExportFormat = "css" | "json" | "ts" | "tailwind" | "dtcg" | "figma";
 export interface ExportOptions {
   modes?: ThemeMode[];
   output?: OutputOptions;
@@ -132,6 +165,11 @@ function exportObject(result: GeneratedTheme, options: ExportOptions) {
     results: reportResults,
     ...(result.validation.gamut ? { gamut: result.validation.gamut } : {}),
   };
+  // 计算清理后的 tokens 一次，tokens/themes 共享引用避免 JSON 序列化重复
+  const cleanedTokens = selectOutputs(
+    Object.fromEntries(modes.map((mode) => [mode, cleanTokensForExport(result.theme[mode]!)])),
+    output.displayP3,
+  );
   return {
     schema: "cus-theme-1.0",
     version: "2.5",
@@ -169,47 +207,15 @@ function exportObject(result: GeneratedTheme, options: ExportOptions) {
       result.palettes?.[modes[0]] ?? result.palette,
       output.displayP3,
     ),
-    tokens: selectOutputs(
-      Object.fromEntries(modes.map((mode) => [mode, result.theme[mode]!])),
-      output.displayP3,
-    ),
-    // CUS-IMPLEMENTATION-01 §67：规范 themes 字段（与 tokens 并存）。
-    themes: selectOutputs(
-      Object.fromEntries(modes.map((mode) => [mode, result.theme[mode]!])),
-      output.displayP3,
-    ),
+    tokens: cleanedTokens,
+    // CUS-IMPLEMENTATION-01 §67：themes 与 tokens 共享同一引用，JSON 序列化不重复。
+    themes: cleanedTokens,
     // CUS-IMPLEMENTATION-01 §67：品牌锚点 OKLCH。
     anchor: result.palette?.brandAnchor
       ? { l: result.palette.brandAnchor.l, c: result.palette.brandAnchor.c, h: result.palette.brandAnchor.h ?? 0 }
       : result.brand.lch
         ? { l: result.brand.lch.l, c: result.brand.lch.c, h: result.brand.lch.h ?? 0 }
         : undefined,
-    resolvedOutputs: Object.fromEntries(
-      modes.map((mode) => [
-        mode,
-        Object.fromEntries(
-          (output.displayP3 ? ["srgb", "display-p3"] : ["srgb"]).map(
-            (space) => [
-              space,
-              Object.fromEntries(
-                (["semantic", "component"] as const).map((layer) => [
-                  layer,
-                  Object.fromEntries(
-                    Object.keys(result.theme[mode]![layer]).map((key) => [
-                      key,
-                      renderColor(
-                        resolveToken(result.theme[mode]!, key, layer),
-                        space as RGBSpace,
-                      ),
-                    ]),
-                  ),
-                ]),
-              ),
-            ],
-          ),
-        ),
-      ]),
-    ),
     resolved: Object.fromEntries(
       modes.map((mode) => [
         mode,
@@ -222,6 +228,50 @@ function exportObject(result: GeneratedTheme, options: ExportOptions) {
     validation,
   };
 }
+
+/**
+ * TypeScript 定义专用精简导出：去掉 palettes / resolved / validation / brand.profile
+ * 等重型字段，仅保留类型定义所需的色彩数据结构。
+ */
+function exportObjectLite(result: GeneratedTheme, options: ExportOptions) {
+  const modes = selectedModes(result, options);
+  const output = selectedOutput(result, options);
+  const cleanedTokens = selectOutputs(
+    Object.fromEntries(modes.map((mode) => [mode, cleanTokensForExport(result.theme[mode]!)])),
+    output.displayP3,
+  );
+  return {
+    schema: "cus-theme-1.0",
+    version: "2.5",
+    algorithm: "CUS-PAL",
+    mathematicsVersion: "2.5",
+    designSpace: "oklch",
+    output,
+    theme: { light: modes.includes("light"), dark: modes.includes("dark") },
+    metadata: {
+      system: "CUS",
+      version: "2.5",
+      colorSpace: "oklch",
+      outputs: output.displayP3 ? ["srgb", "display-p3"] : ["srgb"],
+      whitePoint: "D65",
+    },
+    context: result.context,
+    brand: {
+      primary: result.brand.source,
+      input: result.brand.input,
+    },
+    modes,
+    options: result.options ?? {},
+    tokens: cleanedTokens,
+    themes: cleanedTokens,
+    anchor: result.palette?.brandAnchor
+      ? { l: result.palette.brandAnchor.l, c: result.palette.brandAnchor.c, h: result.palette.brandAnchor.h ?? 0 }
+      : result.brand.lch
+        ? { l: result.brand.lch.l, c: result.brand.lch.c, h: result.brand.lch.h ?? 0 }
+        : undefined,
+  };
+}
+
 export const exportJSON = (
   result: GeneratedTheme,
   options: ExportOptions = {},
@@ -230,18 +280,51 @@ export function exportTypeScript(
   result: GeneratedTheme,
   options: ExportOptions = {},
 ): string {
-  return `// CUS 2.5 自动生成；修改品牌配置后重新生成。\nexport const colors = ${JSON.stringify(exportObject(result, options), null, 2)} as const;\n\nexport type CusTheme = typeof colors;\n`;
+  return `// CUS 2.5 自动生成；修改品牌配置后重新生成。\nexport const colors = ${JSON.stringify(exportObjectLite(result, options), null, 2)} as const;\n\nexport type CusTheme = typeof colors;\n`;
 }
+export function exportFigma(
+  result: GeneratedTheme,
+  options: ExportOptions = {},
+): string {
+  const modes = selectedModes(result, options);
+  const output = selectedOutput(result, options);
+  const figmaTokens: Record<string, unknown> = {};
+  for (const mode of modes) {
+    const theme = result.theme[mode]!;
+    const modeTokens: Record<string, unknown> = {};
+    for (const [key, color] of Object.entries(theme.primitive)) {
+      modeTokens[key] = {
+        value: renderColor(color, output.displayP3 ? "display-p3" : "srgb"),
+        type: "color",
+        description: `Primitive ${key} (${mode})`,
+      };
+    }
+    for (const [key, token] of Object.entries(theme.semantic)) {
+      modeTokens[key] = {
+        value: `{${token.ref}}`,
+        type: "color",
+        description: `Semantic ${key} → ${token.ref} (${mode})`,
+      };
+    }
+    figmaTokens[mode] = modeTokens;
+  }
+  return JSON.stringify(figmaTokens, null, 2) + "\n";
+}
+
 export function exportTheme(
   result: GeneratedTheme,
   format: ExportFormat,
   options: ExportOptions = {},
 ): string {
-  return format === "css"
-    ? exportCSS(result, options)
-    : format === "json"
-      ? exportJSON(result, options)
-      : exportTypeScript(result, options);
+  switch (format) {
+    case "css": return exportCSS(result, options);
+    case "json": return exportJSON(result, options);
+    case "ts": return exportTypeScript(result, options);
+    case "tailwind": return exportTailwindV4(result, options);
+    case "dtcg": return exportDTCGJson(result, options);
+    case "figma": return exportFigma(result, options);
+    default: return exportCSS(result, options);
+  }
 }
 // 只读取输入配置并重新计算，不信任导入文件里的 Token 或验证结果。
 export function parseThemeConfig(text: string): CusDesignerState {
@@ -361,3 +444,7 @@ export function parseThemeConfig(text: string): CusDesignerState {
 export function toCssVariables(theme: GeneratedTheme): string {
   return exportCSS(theme, { output: { srgb: true, displayP3: false } });
 }
+
+// 重新导出新格式函数供直接引用。
+export { exportTailwindV4 } from "./tailwind-v4";
+export { exportDTCGJson } from "./dtcg-json";
