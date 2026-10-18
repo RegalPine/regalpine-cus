@@ -43,9 +43,9 @@ export const PRIMARY_LIGHTNESS = [
 export const NEUTRAL_LIGHTNESS = [
   100, 95, 90, 83, 74, 62, 51, 41, 32, 23, 15, 9, 5,
 ] as const;
-// 前端规范未固定 C* 曲线，此参考实现采用两端收敛、中段峰值的确定性曲线。
+// Bootstrap-inspired 饱和度纪律：中段峰值，向两端平滑收敛。
 export const CHROMA_CURVE = [
-  0.1, 0.2, 0.36, 0.56, 0.8, 1, 0.95, 0.85, 0.7, 0.52, 0.36,
+  0.08, 0.18, 0.36, 0.58, 0.82, 1, 0.92, 0.78, 0.58, 0.38, 0.22,
 ] as const;
 // V1.3 §46：chroma 偏好以确定性缩放作用于家族色度。
 export const CHROMA_SCALES = { muted: 0.8, balanced: 1, vivid: 1.15 } as const;
