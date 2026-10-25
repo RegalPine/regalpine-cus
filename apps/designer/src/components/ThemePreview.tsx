@@ -5,14 +5,15 @@ import type { ThemeTokens } from "@cus/core";
 import { themeVariables } from "@cus/export";
 import { Modal } from "./Modal";
 import { usePreviewSpace } from "./PreviewSpace";
+import { useT } from "../i18n";
 
 const roles = ["success", "warning", "danger", "info"] as const;
-const roleNames = {
-  success: "已完成",
-  warning: "进行中",
-  danger: "需关注",
-  info: "计划中",
-};
+const roleKeys = {
+  success: "preview.roleSuccess",
+  warning: "preview.roleWarning",
+  danger: "preview.roleDanger",
+  info: "preview.roleInfo",
+} as const;
 /** §28：预览密度上下文。 */
 export type PreviewDensity = "comfortable" | "compact" | "dense";
 export function ThemePreview({
@@ -22,56 +23,65 @@ export function ThemePreview({
   tokens: ThemeTokens;
   density?: PreviewDensity;
 }) {
+  const t = useT();
   const space = usePreviewSpace();
-  const [nav, setNav] = useState("总览");
-  const [selected, setSelected] = useState<string[]>(["品牌色彩系统"]);
+  const navKeys = ["preview.navOverview", "preview.navProjects", "preview.navSettings"] as const;
+  const navValues = ["总览", "项目", "设置"] as const;
+  const [nav, setNav] = useState<string>(navValues[0]);
+  const [selected, setSelected] = useState<string[]>([t("preview.brandExperience")]);
   const [projects, setProjects] = useState([
-    "品牌色彩系统",
-    "产品界面设计",
-    "组件库规范",
+    t("preview.brandExperience"),
+    t("preview.redesignProject"),
+    t("preview.sampleHeading"),
   ]);
   const [dialog, setDialog] = useState(false);
-  const [notice, setNotice] = useState(
-    "预览就绪，所有组件使用当前主题 Token。",
-  );
+  const [notice, setNotice] = useState(t("preview.readyNotice"));
   const [loading, setLoading] = useState(false);
   function save() {
     setLoading(true);
     window.setTimeout(() => {
       setLoading(false);
-      setNotice("设置已应用到当前预览。");
+      setNotice(t("preview.settingsApplied"));
     }, 800);
   }
+  const densitySuffix = density === "compact"
+    ? t("preview.densityCompact")
+    : density === "dense"
+      ? t("preview.densityDense")
+      : "";
+  const navIndex = nav === navValues[0] ? 0 : nav === navValues[1] ? 1 : 2;
+  const titleKeys = ["preview.titleOverview", "preview.titleProjects", "preview.titleSettings"] as const;
+  const descKeys = ["preview.descOverview", "preview.descProjects", "preview.descSettings"] as const;
   return (
     <section
       className="theme-preview"
       data-theme={tokens.mode}
       data-density={density}
-      aria-label={`${tokens.mode} 主题预览${density === "comfortable" ? "" : `（${density === "compact" ? "紧凑" : "密集"}密度）`}`}
+      aria-label={t("preview.ariaLabel", { mode: tokens.mode, density: densitySuffix })}
       style={themeVariables(tokens, space) as CSSProperties}
     >
       <div className="preview-title">
         <span>
           <span className="mode-dot" />
-          {tokens.mode === "light" ? "浅色主题" : "深色主题"}
+          {tokens.mode === "light" ? t("preview.lightTheme") : t("preview.darkTheme")}
         </span>
         <span className="mono">{tokens.mode.toUpperCase()}</span>
       </div>
-      <nav className="sample-nav" aria-label={`${tokens.mode} 示例导航`}>
+      <nav className="sample-nav" aria-label={t("preview.ariaNav", { mode: tokens.mode })}>
         <span className="sample-logo">
           ◈ <b>studio</b>
         </span>
         <ToggleGroup.Root
           type="single"
           value={nav}
-          aria-label={`${tokens.mode} 示例视图`}
+          aria-label={t("preview.ariaView", { mode: tokens.mode })}
           onValueChange={(value) => {
             if (value) setNav(value);
           }}
         >
-          {["总览", "项目", "设置"].map((n) => (
+          {navValues.map((n, i) => (
             <ToggleGroup.Item key={n} value={n}>
-              {n}
+              {t(navKeys[i])}
             </ToggleGroup.Item>
           ))}
         </ToggleGroup.Root>
@@ -80,36 +90,24 @@ export function ThemePreview({
       <div className="preview-content">
         <div className="sample-heading">
           <div>
-            <span className="sample-caption">界面样本</span>
-            <h3>
-              {nav === "总览"
-                ? "项目总览"
-                : nav === "项目"
-                  ? "项目列表"
-                  : "偏好设置"}
-            </h3>
-            <p>
-              {nav === "总览"
-                ? "汇总进行中的项目与关键进度指标。"
-                : nav === "项目"
-                  ? "管理全部项目与其当前状态。"
-                  : "配置通知与个性化选项。"}
-            </p>
+            <span className="sample-caption">{t("preview.sampleHeading")}</span>
+            <h3>{t(titleKeys[navIndex])}</h3>
+            <p>{t(descKeys[navIndex])}</p>
           </div>
         </div>
-        {nav !== "设置" && (
+        {nav !== navValues[2] && (
           <>
             <div className="sample-card project-card">
               <div className="row">
                 <span className="project-icon">✳</span>
                 <span className="sample-badge" data-role="info">
-                  品牌体验
+                  {t("preview.brandExperience")}
                 </span>
               </div>
-              <h4>官网视觉改版</h4>
-              <p>统一品牌色在官网与后台界面的落地。</p>
+              <h4>{t("preview.redesignProject")}</h4>
+              <p>{t("preview.redesignDesc")}</p>
               <div className="row progress-label">
-                <span>项目进度</span>
+                <span>{t("preview.projectProgress")}</span>
                 <b>
                   {selected.length
                     ? Math.round((selected.length / projects.length) * 100)
@@ -126,26 +124,26 @@ export function ThemePreview({
               </div>
               <div className="row">
                 <span className="sample-muted">
-                  {projects.length} 个任务 · {selected.length} 个已选择
+                  {t("preview.tasksCount", { total: projects.length, count: selected.length })}
                 </span>
                 <button
                   className="sample-button"
                   onClick={() => setDialog(true)}
                 >
-                  新建项目 <span>＋</span>
+                  {t("preview.newProject")} <span>＋</span>
                 </button>
               </div>
             </div>
             <div className="sample-section-title">
-              <h4>近期项目</h4>
-              <span className="sample-muted">{projects.length} 个项目</span>
+              <h4>{t("preview.recentProjects")}</h4>
+              <span className="sample-muted">{t("preview.projectCount", { count: projects.length })}</span>
             </div>
             <div className="sample-table-wrap">
               <table className="sample-table">
                 <thead>
                   <tr>
-                    <th>项目名称</th>
-                    <th>状态</th>
+                    <th>{t("preview.colProjectName")}</th>
+                    <th>{t("preview.colStatus")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -174,7 +172,7 @@ export function ThemePreview({
                       </td>
                       <td>
                         <span className="sample-badge" data-role={roles[i % 4]}>
-                          {roleNames[roles[i % 4]]}
+                          {t(roleKeys[roles[i % 4]])}
                         </span>
                       </td>
                     </tr>
@@ -184,7 +182,7 @@ export function ThemePreview({
             </div>
           </>
         )}
-        {nav !== "项目" && (
+        {nav !== navValues[1] && (
           <form
             className="sample-form"
             onSubmit={(e) => {
@@ -193,16 +191,16 @@ export function ThemePreview({
             }}
           >
             <label>
-              接收项目更新
+              {t("preview.receiveUpdates")}
               <input
-                aria-label={`${tokens.mode} 邮箱`}
+                aria-label={t("preview.ariaEmail", { mode: tokens.mode })}
                 type="email"
                 required
                 placeholder="you@studio.design"
               />
             </label>
             <button className="sample-button secondary" disabled={loading}>
-              {loading ? "保存中…" : "保存设置"}
+              {loading ? t("preview.saving") : t("preview.saveSettings")}
             </button>
           </form>
         )}
@@ -211,19 +209,19 @@ export function ThemePreview({
           <span>{notice}</span>
         </div>
         <div className="sample-section-title">
-          <h4>交互状态</h4>
-          <span className="sample-muted">试试悬停与 Tab</span>
+          <h4>{t("preview.interactionStates")}</h4>
+          <span className="sample-muted">{t("preview.tryHoverTab")}</span>
         </div>
         <div className="state-grid">
           {[
-            ["default", "默认"],
-            ["hover", "悬停"],
-            ["active", "按下"],
-            ["focus", "聚焦"],
-            ["disabled", "禁用"],
-            ["selected", "选中"],
-            ["loading", "加载中"],
-          ].map(([state, label]) => (
+            ["default", "preview.stateDefault"],
+            ["hover", "preview.stateHover"],
+            ["active", "preview.stateActive"],
+            ["focus", "preview.stateFocus"],
+            ["disabled", "preview.stateDisabled"],
+            ["selected", "preview.stateSelected"],
+            ["loading", "preview.stateLoading"],
+          ].map(([state, labelKey]) => (
             <button
               key={state}
               className="sample-button"
@@ -231,28 +229,28 @@ export function ThemePreview({
               disabled={state === "disabled" || state === "loading"}
               aria-busy={state === "loading"}
               aria-pressed={state === "selected" ? true : undefined}
-              onClick={() => setNotice(`已体验「${label}」状态。`)}
+              onClick={() => setNotice(t("preview.experiencedState", { label: t(labelKey as Parameters<typeof t>[0]) }))}
             >
               {state === "loading" && <span className="spinner" />}
-              {label}
+              {t(labelKey as Parameters<typeof t>[0])}
             </button>
           ))}
         </div>
         <div className="feedback-samples">
           {roles.map((role) => (
             <span key={role} className="sample-badge" data-role={role}>
-              {roleNames[role]}
+              {t(roleKeys[role])}
             </span>
           ))}
         </div>
       </div>
       <footer className="sample-footer">
-        <span>样本界面 · 仅本地渲染</span>
-        <span>CUS 主题预览</span>
+        <span>{t("preview.sampleFooter")}</span>
+        <span>{t("preview.cusPreview")}</span>
       </footer>
       {dialog && (
         <Modal
-          title="新建项目"
+          title={t("preview.modalTitle")}
           className="preview-modal"
           tokens={tokens}
           onClose={() => setDialog(false)}
@@ -265,35 +263,35 @@ export function ThemePreview({
                 new FormData(e.currentTarget).get("name") ?? "",
               ).trim();
               if (!name || projects.includes(name)) {
-                setNotice("项目名称为空或已存在，请使用其他名称。");
+                setNotice(t("preview.nameEmptyOrExists"));
                 setDialog(false);
                 return;
               }
               setProjects([...projects, name]);
               setDialog(false);
-              setNotice(`项目「${name}」已创建。`);
+              setNotice(t("preview.projectCreated", { name }));
             }}
           >
             <label>
-              项目名称
+              {t("preview.colProjectName")}
               <input
                 name="name"
                 required
                 maxLength={40}
                 autoFocus
-                placeholder="给新的灵感起个名字"
+                placeholder={t("preview.namePlaceholder")}
               />
             </label>
-            <p>这是本地交互预览，不会发送任何网络请求。</p>
+            <p>{t("preview.localPreviewDesc")}</p>
             <div className="dialog-actions">
               <button
                 type="button"
                 className="sample-button secondary"
                 onClick={() => setDialog(false)}
               >
-                取消
+                {t("preview.cancel")}
               </button>
-              <button className="sample-button">创建项目</button>
+              <button className="sample-button">{t("preview.createProject")}</button>
             </div>
           </form>
         </Modal>

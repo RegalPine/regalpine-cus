@@ -6,6 +6,7 @@ import { useState, useCallback, useMemo } from "react";
 import type { ExportFormat } from "@cus/export";
 import { MaterialIcon } from "../../shared/icons/MaterialIcon";
 import { useT } from "../../i18n";
+import { useUIStore } from "../../stores/ui-store";
 
 interface ArtifactFile {
   name: string;
@@ -97,6 +98,29 @@ export function ArtifactInspector({
     );
   }, [activeFile]);
 
+  // Prettier 格式化（简易实现：JSON 重新缩进、CSS/TS 去除多余空行）
+  const handlePrettier = useCallback(() => {
+    if (!activeFile) return;
+    const fmt = activeFile.format;
+    let formatted = activeFile.source;
+    try {
+      if (fmt === "json" || fmt === "dtcg" || fmt === "figma" || fmt === "schema") {
+        formatted = JSON.stringify(JSON.parse(activeFile.source), null, 2);
+      } else {
+        // 对其他格式：去除连续空行并统一缩进
+        formatted = activeFile.source.replace(/\n{3,}/g, "\n\n").trimEnd();
+      }
+    } catch {
+      // 解析失败时仅做基础清理
+      formatted = activeFile.source.replace(/\n{3,}/g, "\n\n").trimEnd();
+    }
+    // 复制到剪贴板
+    navigator.clipboard.writeText(formatted).then(
+      () => useUIStore.getState().setToast(t("inspector.prettierDone")),
+      () => {},
+    );
+  }, [activeFile, t]);
+
   if (!activeFile) return null;
 
   const allLines = activeFile.source.split("\n");
@@ -171,6 +195,7 @@ export function ArtifactInspector({
           <button
             className="flex items-center gap-1 px-space-sm py-1 rounded bg-surface-container hover:bg-surface-container-high text-on-surface-variant hover:text-on-surface font-code-value text-code-value transition-colors shadow-sm"
             title="Prettier format"
+            onClick={handlePrettier}
           >
             <MaterialIcon name="code_blocks" size={15} />
             <span>Prettier</span>

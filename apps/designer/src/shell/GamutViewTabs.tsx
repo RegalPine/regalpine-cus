@@ -9,14 +9,14 @@ import { useT } from "../i18n";
 
 interface GamutTab {
   path: string;
-  label: string;
+  labelKey: "gamut.tabOblique" | "gamut.tabHueWheel" | "gamut.tabLcCut";
   sublabelKey: "gamut.oblique" | "gamut.hueWheel" | "gamut.lcCut";
 }
 
 const TABS: GamutTab[] = [
-  { path: "/studio/gamut", label: "Oblique", sublabelKey: "gamut.oblique" },
-  { path: "/studio/gamut/hue-wheel", label: "Hue Wheel", sublabelKey: "gamut.hueWheel" },
-  { path: "/studio/gamut/lc-cut", label: "L-C Cut", sublabelKey: "gamut.lcCut" },
+  { path: "/studio/gamut", labelKey: "gamut.tabOblique", sublabelKey: "gamut.oblique" },
+  { path: "/studio/gamut/hue-wheel", labelKey: "gamut.tabHueWheel", sublabelKey: "gamut.hueWheel" },
+  { path: "/studio/gamut/lc-cut", labelKey: "gamut.tabLcCut", sublabelKey: "gamut.lcCut" },
 ];
 
 export function GamutViewTabs() {
@@ -33,9 +33,9 @@ export function GamutViewTabs() {
               key={tab.path}
               className="flex items-center gap-1.5 px-space-md py-1 rounded font-label-sm text-label-sm bg-primary text-on-primary font-semibold shadow-sm"
             >
-              {tab.label} ({t(tab.sublabelKey)})
+              {t(tab.labelKey)} ({t(tab.sublabelKey)})
               <span className="px-1 py-0.2 rounded bg-on-primary/20 text-on-primary font-code-value text-[10px]">
-                ACTIVE
+                {t("gamut.active")}
               </span>
             </span>
           );
@@ -46,14 +46,10 @@ export function GamutViewTabs() {
             to={tab.path}
             className="flex items-center gap-1.5 px-space-md py-1 rounded font-label-sm text-label-sm text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high transition-colors"
           >
-            {tab.label} ({t(tab.sublabelKey)})
+            {t(tab.labelKey)} ({t(tab.sublabelKey)})
           </Link>
         );
       })}
-      {/* Clip Radar — 占位（尚未实现） */}
-      <span className="flex items-center gap-1.5 px-space-md py-1 rounded font-label-sm text-label-sm text-on-surface-variant/40 cursor-not-allowed">
-        Clip Radar ({t("gamut.clipRadar")})
-      </span>
     </div>
   );
 }

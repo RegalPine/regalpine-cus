@@ -13,6 +13,8 @@ import { useGamutSupport } from "../../hooks/useGamutSupport";
 import { usePersistence } from "../../hooks/usePersistence";
 import { MaterialIcon } from "../../shared/icons/MaterialIcon";
 import { useT } from "../../i18n";
+import { saveAs } from "file-saver";
+import { useUIStore } from "../../stores/ui-store";
 
 type ViewMode = "split" | "light" | "dark";
 type AmbientMode = "d65" | "oled" | "warm";
@@ -304,13 +306,37 @@ export default function TestbedView() {
   const destructiveColor = "#ffb4ab";
   const destructiveBg = "#93000a";
 
-  // 密度 → CSS 缩放（Standard=comfortable, Compact=compact, Spacious=dense）
-  const densityClass = density === "compact" ? "scale-90" : density === "dense" ? "scale-[1.05]" : "";
+  // 密度通过 data-density 属性覆盖 spacing token，控制组件间距关系
 
-  // 环境光滤镜
-  const ambientFilter = ambient === "warm" ? "sepia(0.15) brightness(0.95)" : ambient === "oled" ? "brightness(0.85) contrast(1.1)" : "none";
+  // 环境光滤镜 + 色度倍增器
+  const ambientFilter = ambient === "warm"
+    ? `sepia(0.15) brightness(0.95) saturate(${chromaMultiplier})`
+    : ambient === "oled"
+      ? `brightness(0.85) contrast(1.1) saturate(${chromaMultiplier})`
+      : `saturate(${chromaMultiplier})`;
 
   const handleForcedState = useCallback((state: ForcedState) => setForcedState(state), []);
+
+  // 快照导出
+  const handleSnapshot = useCallback(() => {
+    const snapshot = {
+      timestamp: new Date().toISOString(),
+      config: { viewMode, density, forcedState, ambient, chromaMultiplier, sliderL, apcaToggle },
+      brand: { hex: brand, oklch: result.brand.oklch },
+      designOptions,
+      effectiveSpace,
+      tokenCount: result.validation.results.length,
+      passRate: `${result.validation.counts.PASS}/${result.validation.results.length}`,
+    };
+    const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: "application/json;charset=utf-8" });
+    saveAs(blob, `testbed-snapshot-${Date.now()}.json`);
+    useUIStore.getState().setToast(t("testbed.snapshotExported"));
+  }, [viewMode, density, forcedState, ambient, chromaMultiplier, sliderL, apcaToggle, brand, designOptions, effectiveSpace, result, t]);
+
+  // 应用所有通道
+  const handleApplyAllChannels = useCallback(() => {
+    useUIStore.getState().setToast(t("testbed.channelsApplied", { multiplier: chromaMultiplier.toFixed(2) }));
+  }, [chromaMultiplier, t]);
 
   // 交互状态 CSS class
   const stateClass = forcedState === "hover" ? "opacity-80 scale-[1.02]" : forcedState === "focus" ? "ring-2 ring-primary ring-offset-2 ring-offset-surface" : forcedState === "disabled" ? "opacity-40 pointer-events-none" : forcedState === "skeleton" ? "animate-pulse bg-surface-container-high" : "";
@@ -329,8 +355,9 @@ export default function TestbedView() {
 
     return (
       <div
-        className={`flex flex-col gap-space-lg rounded-xl p-space-lg shadow-md transition-all duration-300 relative overflow-hidden ${densityClass}`}
+        className="flex flex-col gap-space-lg rounded-xl p-space-lg shadow-md transition-all duration-300 relative overflow-hidden"
         style={{ background: bg, color: text, filter: ambientFilter }}
+        data-density={density}
       >
         {/* ─ Watermark Badge ── */}
         <div className="flex items-center justify-between pb-space-sm">
@@ -507,7 +534,10 @@ export default function TestbedView() {
             {t("testbed.apcaPassed")}
           </span>
           <div className="h-3 w-px bg-outline-variant" />
-          <button className="px-space-sm py-1 bg-surface-container-high hover:bg-surface-bright text-on-surface rounded transition-colors flex items-center gap-1 shrink-0">
+          <button
+            className="px-space-sm py-1 bg-surface-container-high hover:bg-surface-bright text-on-surface rounded transition-colors flex items-center gap-1 shrink-0"
+            onClick={handleSnapshot}
+          >
             <MaterialIcon name="photo_camera" size={14} />
             {t("testbed.snapshot")}
           </button>
@@ -667,7 +697,10 @@ export default function TestbedView() {
             >
               {t("testbed.resetParam")}
             </button>
-            <button className="flex-1 py-1 rounded bg-primary text-on-primary font-label-sm text-label-sm font-semibold hover:bg-primary-fixed-dim transition-colors shrink-0">
+            <button
+              className="flex-1 py-1 rounded bg-primary text-on-primary font-label-sm text-label-sm font-semibold hover:bg-primary-fixed-dim transition-colors shrink-0"
+              onClick={handleApplyAllChannels}
+            >
               {t("testbed.applyAllChannels")}
             </button>
           </div>

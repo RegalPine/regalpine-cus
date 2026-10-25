@@ -11,7 +11,9 @@ import { useBrandStore } from "../../stores/brand-store";
 import { useThemeEngine } from "../../hooks/useThemeEngine";
 import { useGamutSupport } from "../../hooks/useGamutSupport";
 import { usePersistence } from "../../hooks/usePersistence";
+import { useTokenList } from "../../hooks/useTokenList";
 import { useT } from "../../i18n";
+import { useUIStore } from "../../stores/ui-store";
 import { PanelCard } from "../../shared/layout/PanelCard";
 import { SectionHeading } from "../../shared/layout/SectionHeading";
 import { GamutViewTabs } from "../../shell/GamutViewTabs";
@@ -104,6 +106,7 @@ export default function HueWheelView() {
   const [showVectors, setShowVectors] = useState(true);
   const [showCrosshair, setShowCrosshair] = useState(true);
   const [cursorPos, setCursorPos] = useState<{ l: number; c: number; h: number } | null>(null);
+  const [syncingFigma, setSyncingFigma] = useState(false);
   const svgRef = useRef<SVGSVGElement>(null);
 
   const scale = 700; // SVG viewBox 半径
@@ -140,6 +143,15 @@ export default function HueWheelView() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }, [sliceL]);
 
+  // Sync Figma（模拟同步流程）
+  const handleSyncFigma = useCallback(() => {
+    setSyncingFigma(true);
+    setTimeout(() => {
+      setSyncingFigma(false);
+      useUIStore.getState().setToast(t("hueWheel.syncDone"));
+    }, 1200);
+  }, [t]);
+
   // 色域边界
   const srgbBoundary = useMemo(() => gamutBoundary(sliceL, "srgb"), [sliceL]);
   const p3Boundary = useMemo(() => gamutBoundary(sliceL, "display-p3"), [sliceL]);
@@ -166,28 +178,24 @@ export default function HueWheelView() {
   const rec2020SmoothPath = useMemo(() => pointsToSmoothPath(rec2020Boundary), [rec2020Boundary]);
 
   // 提取 Primary + Semantic 色板 Token 节点
+  const allTokens = useTokenList(result, "all");
+  const semanticLabels: Record<string, string> = {
+    success: "Success-Green",
+    warning: "Warning-Amber",
+    error: "Destructive-Red",
+    info: "Info-Blue",
+  };
   const tokens = useMemo(() => {
-    const entries: { name: string; color: V2Color; oklch: ReturnType<typeof colorDesign>; label?: string }[] = [];
-    // Primary 500 (base)
-    const primary500 = result.palette.primary["500"];
-    if (primary500) {
-      entries.push({ name: "primary.500", color: primary500, oklch: colorDesign(primary500), label: "Primary-500" });
-    }
-    // Semantic colors
-    const semanticColors = [
-      { key: "success", label: "Success-Green" },
-      { key: "warning", label: "Warning-Amber" },
-      { key: "error", label: "Destructive-Red" },
-      { key: "info", label: "Info-Blue" },
-    ];
-    for (const { key, label } of semanticColors) {
-      const color = result.palette.semantic?.[key as keyof typeof result.palette.semantic]?.base;
-      if (color) {
-        entries.push({ name: `semantic.${key}`, color, oklch: colorDesign(color), label });
-      }
-    }
-    return entries;
-  }, [result]);
+    // 仅保留 primary.500 + semantic 色，并添加显示标签
+    return allTokens
+      .filter((t) => t.name === "primary.500" || t.name.startsWith("semantic."))
+      .map((t) => {
+        const label = t.name === "primary.500"
+          ? "Primary-500"
+          : semanticLabels[t.name.replace("semantic.", "")] ?? t.name;
+        return { ...t, label };
+      });
+  }, [allTokens]);
 
   // Delta-E 向量：从 out-of-gamut token 到 sRGB 边界的投影
   const deltaEVectors = useMemo(() => {
@@ -501,6 +509,18 @@ export default function HueWheelView() {
                   );
                 })()}
 
+                {/* Crosshair at cursor position */}
+                {showCrosshair && cursorPos && (() => {
+                  const pos = oklchToXY(cursorPos.l, cursorPos.c, cursorPos.h, scale);
+                  return (
+                    <g opacity={0.6}>
+                      <line x1={pos.x - 12} y1={pos.y} x2={pos.x + 12} y2={pos.y} stroke="#c0c1ff" strokeWidth={0.8} strokeDasharray="2 2" />
+                      <line x1={pos.x} y1={pos.y - 12} x2={pos.x} y2={pos.y + 12} stroke="#c0c1ff" strokeWidth={0.8} strokeDasharray="2 2" />
+                      <circle cx={pos.x} cy={pos.y} r={3} fill="none" stroke="#c0c1ff" strokeWidth={0.8} />
+                    </g>
+                  );
+                })()}
+
                 {/* Central Neutral Origin */}
                 <circle cx={0} cy={0} r={4} fill="#dfe2ee" />
                 <text x={6} y={12} fill="#908fa0" fontSize={9} fontFamily="JetBrains Mono">C=0 Neutral</text>
@@ -713,21 +733,16 @@ export default function HueWheelView() {
                 <MaterialIcon name="download" size={15} /> {t("hueWheel.exportSVG")}
               </button>
               <button
-                className="flex-1 py-1 px-2 rounded bg-primary text-on-primary font-label-sm text-[12px] font-semibold flex items-center justify-center gap-1 hover:bg-primary-fixed-dim transition-colors"
-                onClick={() => {
-                  const btn = document.activeElement as HTMLElement;
-                  if (btn) {
-                    const original = btn.innerHTML;
-                    btn.innerHTML = `<span class="animate-spin inline-block">⟳</span> ${t("hueWheel.syncDone")}`;
-                    btn.classList.add("bg-secondary", "text-on-secondary");
-                    setTimeout(() => {
-                      btn.innerHTML = original;
-                      btn.classList.remove("bg-secondary", "text-on-secondary");
-                    }, 1800);
-                  }
-                }}
+                className={`flex-1 py-1 px-2 rounded font-label-sm text-[12px] font-semibold flex items-center justify-center gap-1 transition-colors ${
+                  syncingFigma
+                    ? "bg-secondary text-on-secondary"
+                    : "bg-primary text-on-primary hover:bg-primary-fixed-dim"
+                }`}
+                onClick={handleSyncFigma}
+                disabled={syncingFigma}
               >
-                <MaterialIcon name="sync" size={15} /> {t("hueWheel.syncFigma")}
+                <MaterialIcon name={syncingFigma ? "hourglass_empty" : "sync"} size={15} className={syncingFigma ? "animate-spin" : ""} />
+                {syncingFigma ? t("hueWheel.syncing") : t("hueWheel.syncFigma")}
               </button>
             </div>
           </PanelCard>

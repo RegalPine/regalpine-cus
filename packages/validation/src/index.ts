@@ -37,6 +37,8 @@ import { validateOklch } from "./okvalidation";
 export { validateOklch } from "./okvalidation";
 // V2.5：Color Quality & Cleanliness 验证。
 export * from "./quality";
+// 阶段 4：对比度验证工具（WCAG 2.1 AA/AAA）。
+export * from "./contrast-validator";
 
 export function validate(
   input: ThemeResult,

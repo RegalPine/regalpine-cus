@@ -61,36 +61,57 @@ function cleanTokensForExport(tokens: ThemeTokens): ThemeTokens {
 }
 
 export type ExportFormat = "css" | "json" | "ts" | "tailwind" | "dtcg" | "figma";
+export type NamingConvention = "kebab-case" | "camelCase" | "dtcg-dot" | "scss-variable";
+export type GamutPolicy = "dual-p3-srgb" | "srgb-strict" | "display-p3-only";
 export interface ExportOptions {
   modes?: ThemeMode[];
   output?: OutputOptions;
+  namingConvention?: NamingConvention;
+  gamutPolicy?: GamutPolicy;
+  treeShaking?: boolean;
+  schemaValidation?: boolean;
 }
 export function cssVariable(
   key: string,
   layer: "primitive" | "semantic" | "component" = "semantic",
+  naming: NamingConvention = "kebab-case",
 ): string {
+  const base = key.replaceAll(".", "-");
   const prefix =
     layer === "component"
-      ? "--cus-component-"
+      ? "cus-component-"
       : layer === "primitive" &&
-          !/^(primary|secondary|accent|neutral|success|warning|danger|info)\./.test(
-            key,
+          !/^(primary|secondary|accent|neutral|success|warning|danger|info)-/.test(
+            base,
           )
-        ? "--cus-primitive-"
-        : "--cus-color-";
-  return prefix + key.replaceAll(".", "-");
+        ? "cus-primitive-"
+        : "cus-color-";
+  const kebab = prefix + base;
+  switch (naming) {
+    case "camelCase": {
+      const parts = kebab.split("-");
+      return parts[0] + parts.slice(1).map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join("");
+    }
+    case "dtcg-dot":
+      return kebab.replaceAll("-", ".");
+    case "scss-variable":
+      return "$" + kebab;
+    default:
+      return "--" + kebab;
+  }
 }
 export function themeVariables(
   tokens: ThemeTokens,
   space: RGBSpace = "srgb",
+  naming: NamingConvention = "kebab-case",
 ): Record<string, string> {
   const variables: Record<string, string> = {};
   for (const [key, color] of Object.entries(tokens.primitive))
-    variables[cssVariable(key, "primitive")] = renderColor(color, space);
+    variables[cssVariable(key, "primitive", naming)] = renderColor(color, space);
   for (const [key, token] of Object.entries(tokens.semantic))
-    variables[cssVariable(key)] = `var(${cssVariable(token.ref, "primitive")})`;
+    variables[cssVariable(key, "semantic", naming)] = `var(${cssVariable(token.ref, "primitive", naming)})`;
   for (const [key, token] of Object.entries(tokens.component))
-    variables[cssVariable(key, "component")] = `var(${cssVariable(token.ref)})`;
+    variables[cssVariable(key, "component", naming)] = `var(${cssVariable(token.ref, "semantic", naming)})`;
   return variables;
 }
 function selectedModes(
@@ -114,39 +135,73 @@ export function exportCSS(
   options: ExportOptions = {},
 ): string {
   const modes = selectedModes(result, options);
-  const body = modes
-    .map((mode, i) => {
-      const selectors = `${i === 0 ? ":root,\n" : ""}[data-theme="${mode}"]`;
-      const vars = Object.entries(themeVariables(result.theme[mode]!))
-        .map(([k, v]) => `  ${k}: ${v};`)
-        .join("\n");
-      return `${selectors} {\n  color-scheme: ${mode};\n${vars}\n}`;
-    })
-    .join("\n\n");
+  const naming = options.namingConvention ?? "kebab-case";
   const output = selectedOutput(result, options);
+
+  // sRGB body: 仅在 output.srgb 为 true 时生成
+  const body = output.srgb
+    ? modes
+        .map((mode, i) => {
+          const selectors = `${i === 0 ? ":root,\n" : ""}[data-theme="${mode}"]`;
+          const vars = Object.entries(themeVariables(result.theme[mode]!, "srgb", naming))
+            .map(([k, v]) => `  ${k}: ${v};`)
+            .join("\n");
+          return `${selectors} {\n  color-scheme: ${mode};\n${vars}\n}`;
+        })
+        .join("\n\n")
+    : "";
+
+  // P3 block: 仅在 output.displayP3 为 true 时生成
+  // dual-p3-srgb: P3 放入 @supports 渐进增强
+  // display-p3-only: P3 作为基础输出，无需 @supports 包裹
   const p3 = output.displayP3
     ? modes
         .map((mode, i) => {
+          const selectors = `${i === 0 ? ":root,\n" : ""}[data-theme="${mode}"]`;
           const vars = Object.entries(result.theme[mode]!.primitive)
             .map(
               ([key, color]) =>
-                `    ${cssVariable(key, "primitive")}: ${renderColor(color, "display-p3")};`,
+                `    ${cssVariable(key, "primitive", naming)}: ${renderColor(color, "display-p3")};`,
             )
             .join("\n");
-          return `${i === 0 ? ":root,\n" : ""}[data-theme="${mode}"] {\n${vars}\n}`;
+          return `${selectors} {\n${vars}\n}`;
         })
         .join("\n")
     : "";
-  return `/* CUS 2.5 · OKLCH / D65 · sRGB 回退始终保留 */\n${body}\n${p3 ? `\n@supports (color: color(display-p3 1 0 0)) {\n  @media (color-gamut: p3) {\n${p3}\n  }\n}\n` : ""}`;
+
+  const comment = output.srgb && output.displayP3
+    ? "/* CUS 2.5 · OKLCH / D65 · sRGB + Display P3 双输出 */"
+    : output.srgb
+      ? "/* CUS 2.5 · OKLCH / D65 · sRGB Only */"
+      : "/* CUS 2.5 · OKLCH / D65 · Display P3 Only */";
+
+  if (output.srgb && output.displayP3) {
+    // 双输出: sRGB 为基础，P3 渐进增强
+    return `${comment}\n${body}\n\n@supports (color: color(display-p3 1 0 0)) {\n  @media (color-gamut: p3) {\n${p3}\n  }\n}\n`;
+  }
+  if (output.displayP3 && !output.srgb) {
+    // P3 唯一输出: 直接作为基础，无需 @supports
+    return `${comment}\n${p3}\n`;
+  }
+  // sRGB 唯一输出
+  return `${comment}\n${body}\n`;
 }
-function selectedOutput(
+export function selectedOutput(
   result: GeneratedTheme,
   options: ExportOptions,
 ): OutputOptions {
-  return parseThemeOptions({
+  const base = parseThemeOptions({
     output: options.output ??
       result.options?.output ?? { srgb: true, displayP3: true },
   }).output!;
+  // gamutPolicy 覆盖 output 配置
+  if (options.gamutPolicy === "srgb-strict") {
+    return { ...base, srgb: true, displayP3: false };
+  }
+  if (options.gamutPolicy === "display-p3-only") {
+    return { ...base, srgb: false, displayP3: true };
+  }
+  return base;
 }
 function exportObject(result: GeneratedTheme, options: ExportOptions) {
   const modes = selectedModes(result, options);
@@ -166,11 +221,35 @@ function exportObject(result: GeneratedTheme, options: ExportOptions) {
     ...(result.validation.gamut ? { gamut: result.validation.gamut } : {}),
   };
   // 计算清理后的 tokens 一次，tokens/themes 共享引用避免 JSON 序列化重复
-  const cleanedTokens = selectOutputs(
+  let cleanedTokens: Record<string, ThemeTokens> = selectOutputs(
     Object.fromEntries(modes.map((mode) => [mode, cleanTokensForExport(result.theme[mode]!)])),
     output.displayP3,
-  );
-  return {
+  ) as Record<string, ThemeTokens>;
+  // Tree-shaking: 移除未被 semantic/component 引用的 primitive tokens
+  if (options.treeShaking) {
+    const referencedPrimitives = new Set<string>();
+    for (const mode of modes) {
+      const theme = result.theme[mode]!;
+      for (const token of Object.values(theme.semantic)) {
+        referencedPrimitives.add(token.ref);
+      }
+      for (const token of Object.values(theme.component)) {
+        // component 引用 semantic，需要递归查找
+        const semanticToken = theme.semantic[token.ref];
+        if (semanticToken) referencedPrimitives.add(semanticToken.ref);
+      }
+    }
+    cleanedTokens = Object.fromEntries(
+      modes.map((mode) => {
+        const theme = cleanedTokens[mode]!;
+        const shakenPrimitive = Object.fromEntries(
+          Object.entries(theme.primitive).filter(([k]) => referencedPrimitives.has(k)),
+        );
+        return [mode, { ...theme, primitive: shakenPrimitive }];
+      }),
+    );
+  }
+  const obj = {
     schema: "cus-theme-1.0",
     version: "2.5",
     algorithm: "CUS-PAL",
@@ -188,7 +267,10 @@ function exportObject(result: GeneratedTheme, options: ExportOptions) {
       system: "CUS",
       version: "2.5",
       colorSpace: "oklch",
-      outputs: output.displayP3 ? ["srgb", "display-p3"] : ["srgb"],
+      outputs: [
+        ...(output.srgb ? ["srgb"] : []),
+        ...(output.displayP3 ? ["display-p3"] : []),
+      ],
       whitePoint: "D65",
     },
     context: result.context,
@@ -227,6 +309,15 @@ function exportObject(result: GeneratedTheme, options: ExportOptions) {
     ),
     validation,
   };
+  // Schema validation: 检查必要字段是否存在
+  if (options.schemaValidation !== false) {
+    const requiredFields = ["schema", "version", "tokens", "validation"];
+    const missing = requiredFields.filter((f) => !(f in obj));
+    if (missing.length > 0) {
+      throw new ColorError("VALIDATION_ERROR", `导出缺少必要字段: ${missing.join(", ")}`);
+    }
+  }
+  return obj;
 }
 
 /**
@@ -252,7 +343,10 @@ function exportObjectLite(result: GeneratedTheme, options: ExportOptions) {
       system: "CUS",
       version: "2.5",
       colorSpace: "oklch",
-      outputs: output.displayP3 ? ["srgb", "display-p3"] : ["srgb"],
+      outputs: [
+        ...(output.srgb ? ["srgb"] : []),
+        ...(output.displayP3 ? ["display-p3"] : []),
+      ],
       whitePoint: "D65",
     },
     context: result.context,

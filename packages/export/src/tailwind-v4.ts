@@ -10,24 +10,25 @@ import type {
   RGBSpace,
 } from "@cus/core";
 import type { ExportOptions } from "./index";
-import { cssVariable } from "./index";
+import { cssVariable, selectedOutput, type NamingConvention } from "./index";
 
 function tokensToTailwindVars(
   tokens: ThemeTokens,
   space: RGBSpace = "srgb",
+  naming: NamingConvention = "kebab-case",
 ): string[] {
   const lines: string[] = [];
   for (const [key, color] of Object.entries(tokens.primitive)) {
-    const varName = cssVariable(key, "primitive").replace(/^--/, "");
+    const varName = cssVariable(key, "primitive", naming).replace(/^--/, "");
     lines.push(`    --color-${varName}: ${renderColor(color, space)};`);
   }
   for (const [key, token] of Object.entries(tokens.semantic)) {
-    const varName = cssVariable(key).replace(/^--/, "");
-    lines.push(`    --color-${varName}: var(--color-${cssVariable(token.ref, "primitive").replace(/^--/, "")});`);
+    const varName = cssVariable(key, "semantic", naming).replace(/^--/, "");
+    lines.push(`    --color-${varName}: var(--color-${cssVariable(token.ref, "primitive", naming).replace(/^--/, "")});`);
   }
   for (const [key, token] of Object.entries(tokens.component)) {
-    const varName = cssVariable(key, "component").replace(/^--/, "");
-    lines.push(`    --color-${varName}: var(--color-${cssVariable(token.ref).replace(/^--/, "")});`);
+    const varName = cssVariable(key, "component", naming).replace(/^--/, "");
+    lines.push(`    --color-${varName}: var(--color-${cssVariable(token.ref, "semantic", naming).replace(/^--/, "")});`);
   }
   return lines;
 }
@@ -37,9 +38,13 @@ export function exportTailwindV4(
   options: ExportOptions = {},
 ): string {
   const modes = (options.modes ?? (["light", "dark"] as const).filter((m) => result.theme[m])) as ThemeMode[];
+  const naming = options.namingConvention ?? "kebab-case";
+  const output = selectedOutput(result, options);
+  const space: RGBSpace = output.displayP3 ? "display-p3" : "srgb";
   const lines: string[] = [
     `/* CUS 2.5 · Tailwind CSS v4 @theme 格式 */`,
     `/* 自动生成 — 将此文件放入项目 CSS 目录并 @import */`,
+    `/* Color Space: ${output.displayP3 ? "Display P3" : "sRGB"} */`,
     ``,
     `@import "tailwindcss";`,
     ``,
@@ -48,7 +53,7 @@ export function exportTailwindV4(
 
   if (modes.includes("light") && result.theme.light) {
     lines.push(`  /* ── Light Mode Tokens ── */`);
-    lines.push(...tokensToTailwindVars(result.theme.light));
+    lines.push(...tokensToTailwindVars(result.theme.light, space, naming));
   }
 
   if (modes.includes("dark") && result.theme.dark) {
@@ -56,7 +61,7 @@ export function exportTailwindV4(
     lines.push(`  /* ── Dark Mode Tokens ── */`);
     lines.push(`  @media (prefers-color-scheme: dark) {`);
     lines.push(`    @theme {`);
-    lines.push(...tokensToTailwindVars(result.theme.dark).map((l) => `  ${l}`));
+    lines.push(...tokensToTailwindVars(result.theme.dark, space, naming).map((l) => `  ${l}`));
     lines.push(`    }`);
     lines.push(`  }`);
   }

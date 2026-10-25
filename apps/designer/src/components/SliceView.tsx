@@ -2,6 +2,7 @@ import { useMemo, useRef } from "react";
 import type { V2Color, ColorRole, OKLCH, ThemeMode } from "@cus/core";
 import { qualityEnvelope } from "@cus/palette";
 import { mapOklchToGamut, oklchToRgb } from "@cus/color";
+import { useT } from "../i18n";
 
 // ─── CUS-UX-01 §9/§10：二维切片 ─────────────────────────────────────────────
 // 切片平面为 SVG 网格，单元格以 CSS oklch() 填充（浏览器原生处理色域裁剪）；
@@ -60,6 +61,7 @@ export function SliceView({
   /** UX-01 §37：悬停坐标经 COLOR_HOVER 事件上报（null = 离开平面）。 */
   onHover?: (color: OKLCH | null) => void;
 }) {
+  const t = useT();
   const svgRef = useRef<SVGSVGElement>(null);
   const hoverRef = useRef<HTMLSpanElement>(null);
   const dragging = useRef(false);
@@ -246,25 +248,25 @@ export function SliceView({
     <div className="slice-panel">
       <div className="space-controls">
         <label>
-          固定轴{" "}
+          {t("slice.fixedAxis")}{" "}
           <select
-            aria-label="切片固定轴"
+            aria-label={t("slice.ariaFixedAxis")}
             value={slice.axis}
             onChange={(e) => {
               const axis = e.target.value as SliceAxis;
               onSlice({ axis, value: SLICE_DEFAULTS[axis] });
             }}
           >
-            <option value="l">L 明度</option>
-            <option value="c">C 色度</option>
-            <option value="h">H 色相</option>
+            <option value="l">{t("slice.axisL")}</option>
+            <option value="c">{t("slice.axisC")}</option>
+            <option value="h">{t("slice.axisH")}</option>
           </select>
         </label>
         <label>
-          {AXIS_LABEL[slice.axis]} 固定值{" "}
+          {AXIS_LABEL[slice.axis]} {t("slice.fixedValue")}{" "}
           <input
             type="range"
-            aria-label="切片固定值"
+            aria-label={t("slice.ariaFixedValue")}
             min={0}
             max={slice.axis === "l" ? 1 : slice.axis === "c" ? C_MAX : 360}
             step={slice.axis === "h" ? 1 : 0.001}
@@ -276,7 +278,7 @@ export function SliceView({
           <input
             className="coordinate-input"
             type="number"
-            aria-label="切片固定数值"
+            aria-label={t("slice.ariaFixedNumeric")}
             min={0}
             max={slice.axis === "l" ? 1 : slice.axis === "c" ? undefined : 360}
             step={slice.axis === "h" ? 1 : 0.001}
@@ -288,9 +290,9 @@ export function SliceView({
           />
         </label>
         <span className="slice-meta" data-testid="slice-meta">
-          切片 fixed: {AXIS_LABEL[slice.axis]} = {slice.value.toFixed(3)} ·
-          horizontal: {plane.hAxis} · vertical: {plane.vAxis} ·{" "}
-          <span ref={hoverRef}>悬停读取坐标</span>
+          {t("slice.sliceLabel")} fixed: {AXIS_LABEL[slice.axis]} = {slice.value.toFixed(3)} ·
+          {t("slice.horizontal")}: {plane.hAxis} · {t("slice.vertical")}: {plane.vAxis} ·{" "}
+          <span ref={hoverRef}>{t("slice.hoverCoords")}</span>
         </span>
       </div>
       <svg
@@ -298,7 +300,7 @@ export function SliceView({
         className="slice-svg"
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label={`二维颜色切片：固定 ${AXIS_LABEL[slice.axis]}=${slice.value.toFixed(3)}，水平 ${plane.hAxis}，垂直 ${plane.vAxis}；点击或拖动选择颜色`}
+        aria-label={t("slice.ariaLabel2D", { axis: AXIS_LABEL[slice.axis], value: slice.value.toFixed(3), h: plane.hAxis, v: plane.vAxis })}
         tabIndex={0}
         style={{ touchAction: "none" }}
         onPointerDown={(e) => {
@@ -326,12 +328,11 @@ export function SliceView({
           dragging.current = false;
           onHover?.(null);
           if (hoverRef.current)
-            hoverRef.current.textContent = "悬停读取坐标";
+            hoverRef.current.textContent = t("slice.hoverCoords");
         }}
       >
         <title>
-          二维切片：固定 {AXIS_LABEL[slice.axis]}={slice.value.toFixed(3)}；
-          点击或拖动以选择候选颜色
+          {t("slice.title2D", { axis: AXIS_LABEL[slice.axis], value: slice.value.toFixed(3) })}
         </title>
         <defs>
           <pattern id="dirty-hatch" width="8" height="8" patternUnits="userSpaceOnUse">
@@ -458,9 +459,7 @@ export function SliceView({
         </g>
       </svg>
       <p className="muted">
-        点击或拖动选择候选主色 · 虚线锚点表示当前锚点不在切片平面内 · sRGB
-        实线 / P3 虚线色域边界（采样近似）；边界外按浏览器原生裁剪显示 ·
-        斜线阴影为 Dirty Zone（Dirty 时）与对比度不足区域（开启对比参考时）
+        {t("slice.hint2D")}
       </p>
     </div>
   );

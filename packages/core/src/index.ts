@@ -28,6 +28,8 @@ export * from "./picker";
 export * from "./camera";
 // CUS-IMPLEMENTATION-01 §9：规范适配层。
 export * from "./spec-adapters";
+// 语义色相约束工具（支持跨 0° 环形区间）。
+export * from "./hue-constraints";
 
 export const STEPS = [
   50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950,
@@ -44,8 +46,30 @@ export type NeutralStep = (typeof NEUTRAL_STEPS)[number];
 export const ACHROMATIC_BRAND_EPSILON = 1e-4;
 export const SEMANTIC_ROLES = ["success", "warning", "danger", "info"] as const;
 export type SemanticRole = (typeof SEMANTIC_ROLES)[number];
-// V1.3 §18：语义默认 Hue 区间（中心色 ±10° 候选）。
-export const SEMANTIC_HUES: Record<SemanticRole, readonly number[]> = {
+
+/**
+ * 语义色相配置类型 —— 每个语义角色允许有多个候选色相。
+ * 
+ * 设计原则：
+ * - 候选色相以锚点为中心，±10°~15° 范围
+ * - LCH 与 OKLCH 使用不同的色相值，因为两种色彩空间的感知均匀性不同
+ * - OKLCH 路径的色相值通常在 LCH 基础上微调（见 palette/okpalette.ts）
+ */
+export type SemanticHueConfig = Record<SemanticRole, readonly number[]>;
+
+/**
+ * V1.3 §18：LCH 色彩空间的语义默认色相配置。
+ * 
+ * 候选色相（中心色 ±10°）：
+ * - success: 145°（绿色方向）
+ * - warning: 80°（黄/琥珀方向）
+ * - danger: 30°（红色方向）
+ * - info: 255°（蓝色方向）
+ * 
+ * 注意：OKLCH 路径使用 OK_SEMANTIC_HUES（定义在 palette/okpalette.ts），
+ * 因为 OKLCH 的感知均匀性不同，色相值需要微调。
+ */
+export const SEMANTIC_HUES: SemanticHueConfig = {
   success: [145, 135, 155],
   warning: [80, 70, 90],
   danger: [30, 20, 40],

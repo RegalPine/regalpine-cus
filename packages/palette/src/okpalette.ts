@@ -21,6 +21,7 @@ import {
   type ConstraintDecisionRecord,
   type PaletteGenerationProfile,
   type ColorAnchor,
+  type SemanticHueConfig,
 } from "@cus/core";
 import {
   createOklchColor,
@@ -56,7 +57,23 @@ export const OK_NEUTRAL_LIGHTNESS = {
 // Bootstrap-inspired 饱和度纪律：中段（step 500）峰值，向两端平滑收敛，
 // 避免极端色阶保留过高色度导致视觉噪声。
 const CURVE = [0.08, 0.18, 0.36, 0.58, 0.82, 1, 0.92, 0.78, 0.58, 0.38, 0.22];
-export const OK_SEMANTIC_HUES: Record<SemanticRole, readonly number[]> = {
+
+/**
+ * OKLCH 色彩空间的语义默认色相配置。
+ * 
+ * 与 LCH 路径的 SEMANTIC_HUES（定义在 core/src/index.ts）相比，
+ * OKLCH 的色相值经过微调以补偿感知均匀性差异：
+ * 
+ * | 角色    | LCH 锚点 | OKLCH 锚点 | 偏移  |
+ * |---------|----------|------------|-------|
+ * | success | 145°     | 145°       | 0°    |
+ * | warning | 80°      | 85°        | +5°   |
+ * | danger  | 30°      | 25°        | -5°   |
+ * | info    | 255°     | 250°       | -5°   |
+ * 
+ * 候选色相仍以锚点为中心，±10°~15° 范围。
+ */
+export const OK_SEMANTIC_HUES: SemanticHueConfig = {
   success: [145, 135, 155],
   warning: [85, 75, 95],
   danger: [25, 15, 35],

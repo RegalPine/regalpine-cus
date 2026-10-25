@@ -7,7 +7,6 @@ import {
   type GeneratedTheme,
   type OutputOptions,
   type ThemeMode,
-  type ValidationReport,
 } from "@cus/core";
 import { exportTheme, type ExportFormat } from "@cus/export";
 import { Modal } from "../components/Modal";
@@ -288,116 +287,6 @@ export function TokenPanel({
           </tbody>
         </table>
       </div>
-    </section>
-  );
-}
-export function ValidationPanel({ report }: { report: ValidationReport }) {
-  const hasIssues = report.counts.FAIL > 0 || report.counts.WARN > 0;
-  const [expanded, setExpanded] = useState(hasIssues);
-  const [filter, setFilter] = useState("issues");
-  const categories = [
-    "Color",
-    "Gamut",
-    "Palette",
-    "Semantic",
-    "Contrast",
-    "Theme",
-    "Component",
-    "Hue",
-  ];
-  const t = useT();
-  const results = report.results.filter(
-    (r) =>
-      filter === "all" ||
-      (filter === "issues" ? r.status !== "PASS" : r.category === filter),
-  );
-  return (
-    <section className="validation-panel">
-      <div className="section-heading">
-        <div>
-          <span className="eyebrow">VALIDATION</span>
-          <h3>{t("panel.validationTitle")}</h3>
-        </div>
-        <button
-          className="text-button"
-          onClick={() => setExpanded(!expanded)}
-          aria-expanded={expanded}
-        >
-          {expanded ? t("panel.collapseReport") : t("panel.expandReport")}
-        </button>
-      </div>
-      <div className="validation-categories">
-        {categories.map((category) => {
-          const values = report.results.filter((r) => r.category === category);
-          const status = values.some((r) => r.status === "FAIL")
-            ? "FAIL"
-            : values.some((r) => r.status === "WARN")
-              ? "WARN"
-              : "PASS";
-          return (
-            <button
-              className={`check-chip ${status.toLowerCase()}`}
-              key={category}
-              onClick={() => {
-                setExpanded(true);
-                setFilter(category);
-              }}
-            >
-              <span>
-                {status === "PASS" ? "✓" : status === "WARN" ? "△" : "×"}
-              </span>
-              {category}
-            </button>
-          );
-        })}
-      </div>
-      <div className="validation-summary">
-        <span>
-          <b>{report.counts.PASS}</b> {t("panel.passCount")} <b>{report.counts.WARN}</b>{" "}
-          {t("panel.warnCount")} <b>{report.counts.FAIL}</b> {t("panel.failCount")}
-        </span>
-        <span>{t("panel.p3Note")}</span>
-      </div>
-      {expanded && (
-        <div className="validation-report">
-          <div className="report-toolbar">
-            <label>
-              {t("panel.filter")}{" "}
-              <select
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-              >
-                <option value="issues">{t("panel.filterIssues")}</option>
-                <option value="all">{t("panel.filterAll")}</option>
-                {categories.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
-            </label>
-            <span>{results.length} {t("panel.checkCount")}</span>
-          </div>
-          <ul>
-            {results.length ? (
-              results.map((r) => (
-                <li key={r.id}>
-                  <span className={`status-label ${r.status.toLowerCase()}`}>
-                    {r.status}
-                  </span>
-                  <span>{r.message}</span>
-                  {r.value !== undefined && (
-                    <code>
-                      {r.value.toFixed(2)}
-                      {r.threshold !== undefined ? ` / ${r.threshold}` : ""}
-                    </code>
-                  )}
-                </li>
-              ))
-            ) : (
-              <li>{t("panel.noIssues")}</li>
-            )}
-          </ul>
-        </div>
-      )}
     </section>
   );
 }

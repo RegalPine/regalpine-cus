@@ -144,21 +144,20 @@ function generateFunctionalColors(
   _profile: V2SemanticProfile,
   _ctx: ThemeContext,
 ): SemanticColor[] {
-  const hueMapping: Record<string, number> = {};
   const results: SemanticColor[] = [];
 
   for (const role of SEMANTIC_ROLES) {
     const feedbackScale = palette.feedback?.[role];
     if (!feedbackScale) continue;
     const mid = feedbackScale[500];
-    const targetHue = hueMapping[role];
+    // 直接使用 feedback 色阶的 500 阶色相，保持与 palette 一致
     const color: OklchColor = mid?.design
       ? {
           l: mid.design.l,
           c: mid.design.c,
-          h: targetHue !== undefined ? targetHue : (mid.design.h ?? 0),
+          h: mid.design.h ?? 0,
         }
-      : { l: 0.5, c: 0.1, h: targetHue ?? 0 };
+      : { l: 0.5, c: 0.1, h: 0 };
 
     results.push(
       toSemanticColor(`color.functional.${role}`, color, `palette.feedback.${role}.500`, role),

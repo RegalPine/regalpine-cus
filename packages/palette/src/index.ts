@@ -35,6 +35,8 @@ export * from "./okpalette";
 export * from "./okquality";
 // PALETTE-01 §6/§8–§9/§10–§11：Profile 引擎。
 export * from "./profiles";
+// 增强语义色选择器（硬约束过滤 + 软偏好评分 + 诊断信息）。
+export * from "./semantic-selector";
 
 export const PRIMARY_LIGHTNESS = [
   96, 92, 86, 78, 68, 56, 47, 38, 30, 22, 15,
@@ -253,9 +255,10 @@ export function semanticBaseHues(
 export function generateFeedback(
   input: LCh,
   mode: ThemeMode = "light",
+  options: PaletteOptions = {},
 ): Record<SemanticRole, ColorScale> {
   const brand = normalizeLch(input);
-  const selected = selectSemantic(brand, mode);
+  const selected = selectSemantic(brand, mode, options);
   return Object.fromEntries(
     SEMANTIC_ROLES.map((role) => {
       const { hue, color } = selected[role];
@@ -286,7 +289,7 @@ export function generatePalette(
     accent: generateAccent(brand, options),
     neutral: generateNeutral(brand, options),
     semantic: generateSemantic(brand, "light", options),
-    feedback: generateFeedback(brand),
+    feedback: generateFeedback(brand, "light", options),
   };
 }
 /** V1.4 §5：Brand DNA —— 对品牌颜色色度特征的工程化摘要（非新颜色模型）。 */

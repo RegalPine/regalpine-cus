@@ -65,8 +65,10 @@ function buildBoundary(viewSpace: WorkSpace, space: RGBSpace): [Point3, Point3, 
 /* ── 主组件 ── */
 export function GamutVolume3D({
   result,
+  strategy,
 }: {
   result: GeneratedTheme;
+  strategy?: number;
 }) {
   const t = useT();
   const [model, setModel] = useState<WorkSpace>("oklab");
@@ -79,6 +81,13 @@ export function GamutVolume3D({
     hueRing: false,
   });
   const [rotation] = useState({ yaw: 0.6, pitch: 0.35 });
+
+  // Mapping Strategy 标签
+  const strategyLabels = [
+    t("gamutVolume.strategyRay"),
+    t("gamutVolume.strategyCompress"),
+    t("gamutVolume.strategyClip"),
+  ];
 
   // ISO-Lightness Slice
   const [sliceL, setSliceL] = useState(0.65);
@@ -175,13 +184,16 @@ export function GamutVolume3D({
       <div className="bg-surface-container-low p-space-sm rounded-lg flex flex-wrap items-center gap-space-md">
         <div className="flex items-center gap-space-xs">
           <span className="w-2.5 h-2.5 rounded-full bg-secondary" />
-          <span className="font-label-md text-label-md text-on-surface font-semibold">Engine: OKLCH WebGL 3D</span>
+          <span className="font-label-md text-label-md text-on-surface font-semibold">{t("gamut3d.engineLabel")}</span>
         </div>
         <div className="flex flex-wrap gap-space-md font-code-value text-[11px] text-on-surface-variant">
-          <span>Color Space: <span className="text-on-surface">OKLch Cylindrical</span></span>
-          <span>Illuminant: <span className="text-on-surface">D65 / 2° Obs</span></span>
-          <span>Outer Shell: <span className="text-secondary font-semibold">Display P3</span></span>
-          <span>Inner Shell: <span className="text-outline">sRGB (Rec. 709)</span></span>
+          <span>{t("gamut3d.colorSpaceLabel")}<span className="text-on-surface">{t("gamut3d.oklchCylindrical")}</span></span>
+          <span>{t("gamut3d.illuminantLabel")}<span className="text-on-surface">{t("gamut3d.d65Obs")}</span></span>
+          <span>{t("gamut3d.outerShell")}<span className="text-secondary font-semibold">{t("gamutVolume.displayP3")}</span></span>
+          <span>{t("gamut3d.innerShell")}<span className="text-outline">{t("gamut3d.srgbRec709")}</span></span>
+          {strategy !== undefined && (
+            <span className="text-primary font-semibold">{t("gamut3d.strategy")}: {strategyLabels[strategy]}</span>
+          )}
         </div>
       </div>
 
@@ -265,7 +277,7 @@ export function GamutVolume3D({
           surfaces={surfaces}
           crossSection={false}
           rotation={rotation}
-          zoom={1.2}
+          zoom={1.6}
           pan={{ x: 0, y: 0 }}
           haloKeys={new Set()}
           projection="ORTHOGRAPHIC"
@@ -279,7 +291,7 @@ export function GamutVolume3D({
         <div className="absolute top-3 right-3 bg-surface-container-low/95 backdrop-blur-sm p-3 rounded-lg shadow-lg w-64 border border-outline/10">
           <div className="flex items-center justify-between mb-2">
             <span className="font-code-value text-[10px] text-on-surface-variant flex items-center gap-1.5 uppercase tracking-wider">
-              <span className="text-outline">☰</span> ISO-Lightness Slice
+              <span className="text-outline">☰</span> {t("gamut3d.isoSlice")}
             </span>
             <span className="font-code-value text-[13px] text-on-surface font-bold">L = {sliceL.toFixed(2)}</span>
           </div>
@@ -293,9 +305,9 @@ export function GamutVolume3D({
             className="w-full accent-primary h-1.5"
           />
           <div className="flex justify-between font-code-value text-[9px] text-outline mt-1">
-            <span>L=0.0 (Black)</span>
+            <span>{t("gamut3d.blackLabel")}</span>
             <span>L=0.50</span>
-            <span>L=1.0 (White)</span>
+            <span>{t("gamut3d.whiteLabel")}</span>
           </div>
           <label className="flex items-center gap-1.5 mt-2.5 cursor-pointer">
             <input
@@ -348,8 +360,8 @@ export function GamutVolume3D({
             <span>h: <span className="text-on-surface font-bold">{probeColor.h.toFixed(1)}°</span></span>
           </div>
           <div className="flex items-center gap-space-sm font-code-value text-[10px] text-on-surface-variant">
-            <span>→ Mapped sRGB: <span className="text-on-surface">{probeColor.mappedHex}</span></span>
-            <span>(ΔE OK: {probeColor.deltaE.toFixed(3)})</span>
+            <span>{t("gamut3d.mappedSrgb")}<span className="text-on-surface">{probeColor.mappedHex}</span></span>
+            <span>{t("gamut3d.deltaOk", { delta: probeColor.deltaE.toFixed(3) })}</span>
           </div>
         </div>
       )}

@@ -61,6 +61,7 @@ import {
   CusSelectItem,
   CusSwitch,
 } from "@cus/ui";
+import { useT } from "../i18n";
 
 type Point = [number, number, number];
 type Triangle = [Point, Point, Point];
@@ -111,10 +112,10 @@ function boundary(viewSpace: WorkSpace, space: RGBSpace): Triangle[] {
   return triangles;
 }
 
-const GAMUT_LABEL: Record<string, string> = {
-  IN_GAMUT: "域内",
-  NEAR_GAMUT_BOUNDARY: "接近边界",
-  OUT_OF_GAMUT: "域外",
+const GAMUT_LABEL_KEYS: Record<string, string> = {
+  IN_GAMUT: "space.inGamut",
+  NEAR_GAMUT_BOUNDARY: "space.nearBoundary",
+  OUT_OF_GAMUT: "space.outOfGamut",
 };
 const badgeClass = (status: string) =>
   status === "IN_GAMUT"
@@ -145,11 +146,12 @@ export function ColorSpaceView({
   /** 对比参考的背景 token（surface.default 等），缺省隐藏对比参考。 */
   background?: V2Color;
 }) {
+  const t = useT();
   const space = usePreviewSpace();
   const [viewMode, setViewMode] = useState<ViewMode>("space");
   const [model, setModel] = useState<WorkSpace>("oklab");
   const [rotation, setRotation] = useState({ yaw: 0.6, pitch: 0.35 });
-  const [zoom, setZoom] = useState(1.2);
+  const [zoom, setZoom] = useState(1.6);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [family, setFamily] = useState("primary");
   const [surfaces, setSurfaces] = useState({ srgb: true, "display-p3": true });
@@ -328,7 +330,7 @@ export function ColorSpaceView({
             if (hoverLabelRef.current)
               hoverLabelRef.current.textContent = event.payload
                 ? `L ${event.payload.coordinate.l.toFixed(3)} · C ${event.payload.coordinate.c.toFixed(3)} · H ${(event.payload.coordinate.h ?? 0).toFixed(0)}°`
-                : "悬停读取坐标";
+                : t("space.hoverCoords");
             break;
           case "PALETTE_UPDATE":
             // Palette 预览由 candidate 派生；事件面供契约与外部监听。
@@ -681,14 +683,14 @@ export function ColorSpaceView({
   );
   return (
     <section ref={panelRef} className={`space-panel${fullscreen ? " space-panel-fullscreen" : ""}`}>
-      <div className="space-controls" role="group" aria-label="空间视图模式">
+      <div className="space-controls" role="group" aria-label={t("space.ariaViewMode")}>
         <button
           type="button"
           className="outline-button"
           aria-pressed={viewMode === "space"}
           onClick={() => setViewMode("space")}
         >
-          3D 空间
+          {t("space.view3D")}
         </button>
         <button
           type="button"
@@ -696,24 +698,24 @@ export function ColorSpaceView({
           aria-pressed={viewMode === "slice"}
           onClick={() => setViewMode("slice")}
         >
-          2D 切片
+          {t("space.view2D")}
         </button>
         <button
           type="button"
           className="outline-button fullscreen-button"
           onClick={toggleFullscreen}
-          aria-label={fullscreen ? "退出全屏" : "全屏模式"}
-          title={fullscreen ? "退出全屏" : "全屏模式"}
+          aria-label={fullscreen ? t("space.exitFullscreen") : t("space.fullscreen")}
+          title={fullscreen ? t("space.exitFullscreen") : t("space.fullscreen")}
         >
-          {fullscreen ? "✕ 退出全屏" : "⛶ 全屏"}
+          {fullscreen ? t("space.exitFullscreenIcon") : t("space.fullscreenIcon")}
         </button>
-        <span>空间{" "}</span>
+        <span>{t("space.spaceLabel")}{" "}</span>
         <CusSelect
           value={model}
           disabled={viewMode === "slice"}
           onValueChange={(v) => changeSpace(v as WorkSpace)}
         >
-          <CusSelectTrigger aria-label="三维坐标空间" title={viewMode === "slice" ? "切片仅在 OKLCH 平面交互" : undefined}>
+          <CusSelectTrigger aria-label={t("space.ariaCoordSpace")} title={viewMode === "slice" ? t("space.sliceOnlyOkLCH") : undefined}>
             {{ oklab: "Oklab", oklch: "OKLCH", lab: "CIELab (D65)", lch: "CIELCh (D65)" }[model] ?? model}
           </CusSelectTrigger>
           <CusSelectContent>
@@ -723,7 +725,7 @@ export function ColorSpaceView({
             <CusSelectItem value="lch">CIELCh (D65)</CusSelectItem>
           </CusSelectContent>
         </CusSelect>
-        <span>家族{" "}</span>
+        <span>{t("space.familyLabel")}{" "}</span>
         <CusSelect
           value={family}
           onValueChange={(v) =>
@@ -733,7 +735,7 @@ export function ColorSpaceView({
             })
           }
         >
-          <CusSelectTrigger aria-label="三维家族筛选">
+          <CusSelectTrigger aria-label={t("space.ariaFamilyFilter")}>
             {family}
           </CusSelectTrigger>
           <CusSelectContent>
@@ -745,37 +747,37 @@ export function ColorSpaceView({
         {/* UX-02 §25/§38：投影模式 ToggleGroup（默认 Orthographic）。 */}
         {viewMode === "space" && (
           <>
-            <span>投影{" "}</span>
+            <span>{t("space.projectionLabel")}{" "}</span>
             <ToggleGroup.Root
               type="single"
               className="segmented"
-              aria-label="投影模式"
+              aria-label={t("space.ariaProjection")}
               value={projection}
               onValueChange={(v) => {
                 if (v === "ORTHOGRAPHIC" || v === "PERSPECTIVE")
                   setProjection(v);
               }}
             >
-              <ToggleGroup.Item value="ORTHOGRAPHIC">正交</ToggleGroup.Item>
-              <ToggleGroup.Item value="PERSPECTIVE">透视</ToggleGroup.Item>
+              <ToggleGroup.Item value="ORTHOGRAPHIC">{t("space.orthographic")}</ToggleGroup.Item>
+              <ToggleGroup.Item value="PERSPECTIVE">{t("space.perspective")}</ToggleGroup.Item>
             </ToggleGroup.Root>
           </>
         )}
         {/* UX-02 §20/§38：2D 切片种类（OKLab L/a/b 或 OKLCH L/C/H）。 */}
         {viewMode === "slice" && (
           <>
-            <span>切片{" "}</span>
+            <span>{t("space.sliceLabel")}{" "}</span>
             <ToggleGroup.Root
               type="single"
               className="segmented"
-              aria-label="切片种类"
+              aria-label={t("space.ariaSliceKind")}
               value={sliceKind}
               onValueChange={(v) => {
                 if (v === "oklab" || v === "oklch") setSliceKind(v);
               }}
             >
-              <ToggleGroup.Item value="oklab">OKLab L/a/b</ToggleGroup.Item>
-              <ToggleGroup.Item value="oklch">OKLCH L/C/H</ToggleGroup.Item>
+              <ToggleGroup.Item value="oklab">{t("slice.axisLAB")}</ToggleGroup.Item>
+              <ToggleGroup.Item value="oklch">{t("slice.axisLCH")}</ToggleGroup.Item>
             </ToggleGroup.Root>
           </>
         )}
@@ -788,7 +790,7 @@ export function ColorSpaceView({
               setLayers({ ...layers, hueRing: !!v })
             }
           />
-          色相环
+          {t("space.layerHueRing")}
         </label>
         <label>
           <CusCheckbox
@@ -797,7 +799,7 @@ export function ColorSpaceView({
               setLayers({ ...layers, lightnessGrid: !!v })
             }
           />
-          明度网格
+          {t("space.layerLightnessGrid")}
         </label>
         <label>
           <CusCheckbox
@@ -806,16 +808,16 @@ export function ColorSpaceView({
               setLayers({ ...layers, gamutBoundary: !!v })
             }
           />
-          色域边界
+          {t("space.layerGamutBoundary")}
         </label>
         {/* UX-02 §38：Dirty Zone → Switch（不自行实现基础交互）。 */}
         <label className="switch-label">
           <CusSwitch
             checked={layers.dirtyZone}
             onCheckedChange={(v) => toggleDirtyZone(!!v)}
-            aria-label="Dirty Zone 叠加层"
+            aria-label={t("space.ariaDirtyZone")}
           />
-          Dirty Zone
+          {t("space.layerDirtyZone")}
         </label>
         {/* UX-02 §5–§8：Volume 点云层（仅 3D + OKLab 空间可用）。 */}
         {viewMode === "space" && model === "oklab" && (
@@ -823,9 +825,9 @@ export function ColorSpaceView({
             <CusSwitch
               checked={showVolume}
               onCheckedChange={(v) => setShowVolume(!!v)}
-              aria-label="Color Volume 点云"
+              aria-label={t("space.ariaVolume")}
             />
-            Volume 点云
+            {t("space.layerVolume")}
           </label>
         )}
         <label>
@@ -835,7 +837,7 @@ export function ColorSpaceView({
               setLayers({ ...layers, paletteTrail: !!v })
             }
           />
-          Palette 轨迹
+          {t("space.layerPaletteTrail")}
         </label>
         <label>
           <CusCheckbox
@@ -844,7 +846,7 @@ export function ColorSpaceView({
               setLayers({ ...layers, contrastRef: !!v })
             }
           />
-          对比参考
+          {t("space.layerContrastRef")}
         </label>
         {(["srgb", "display-p3"] as const).map((target) => (
           <label key={target}>
@@ -852,24 +854,24 @@ export function ColorSpaceView({
               checked={surfaces[target]}
               onCheckedChange={(v) => toggleSurface(target, !!v)}
             />
-            {target} 边界
+            {target}{t("space.boundarySuffix")}
           </label>
         ))}
         {viewMode === "space" && (
           <label>
             <CusCheckbox
-              aria-label="三维截面"
+              aria-label={t("space.ariaCrossSection")}
               checked={crossSection}
               onCheckedChange={(v) => setCrossSection(!!v)}
             />
-            截面
+            {t("space.layerCrossSection")}
           </label>
         )}
       </div>
       <p className="muted">
         {viewMode === "space"
-          ? "拖动旋转 · Shift+拖动平移 · 圆点为设计源，方点为映射值，虚线连接压缩轨迹 · sRGB 实线 / P3 虚线边界（采样近似）"
-          : "点击或拖动切片平面产生候选主色 · 徽标显示实时色域与 Dirty 状态 · 提交后应用为主色"}
+          ? t("space.hint3D")
+          : t("space.hint2D")}
       </p>
       {viewMode === "space" ? (
         <div
@@ -967,7 +969,7 @@ export function ColorSpaceView({
             if (hoverLabelRef.current)
               hoverLabelRef.current.textContent = lab
                 ? `L ${lab.l.toFixed(3)} · a ${lab.a.toFixed(3)} · b ${lab.b.toFixed(3)}`
-                : "悬停读取坐标";
+                : t("space.hoverCoords");
           }}
         />
         </div>
@@ -1031,13 +1033,13 @@ export function ColorSpaceView({
                 className={badgeClass(candidateInfo.srgb)}
                 data-gamut-status={candidateInfo.srgb}
               >
-                sRGB {GAMUT_LABEL[candidateInfo.srgb]}
+                sRGB {t(GAMUT_LABEL_KEYS[candidateInfo.srgb] as Parameters<typeof t>[0])}
               </span>
               <span
                 className={badgeClass(candidateInfo.p3)}
                 data-gamut-status={candidateInfo.p3}
               >
-                P3 {GAMUT_LABEL[candidateInfo.p3]}
+                P3 {t(GAMUT_LABEL_KEYS[candidateInfo.p3] as Parameters<typeof t>[0])}
               </span>
               <span
                 className={
@@ -1048,8 +1050,8 @@ export function ColorSpaceView({
                 data-dirty-status={candidateInfo.dirty}
               >
                 {candidateInfo.dirty === "DIRTY"
-                  ? "Dirty Zone"
-                  : "Clean Zone"}
+                  ? t("space.dirtyZone")
+                  : t("space.cleanZone")}
               </span>
               {/* UX-02 §43：选色来源标记（3D_PICK / SLICE_PICK / PARAMETER）。 */}
               {selectionSource && (
@@ -1057,23 +1059,23 @@ export function ColorSpaceView({
                   className="badge badge-source"
                   data-selection-source={selectionSource}
                 >
-                  来源：
+                  {t("space.sourceLabel")}
                   {selectionSource === "3D_PICK"
-                    ? "3D 拾取"
+                    ? t("space.source3DPick")
                     : selectionSource === "SLICE_PICK"
-                      ? "切片拾取"
-                      : "参数输入"}
+                      ? t("space.sourceSlicePick")
+                      : t("space.sourceParam")}
                 </span>
               )}
               <span className="muted" ref={hoverLabelRef}>
-                悬停读取坐标
+                {t("space.hoverCoords")}
               </span>
             </div>
             {preview && preview.steps.length > 0 && (
               <div
                 className="candidate-preview"
                 data-testid="candidate-palette"
-                aria-label="候选主色 Palette 实时预览"
+                aria-label={t("space.ariaCandidatePalette")}
               >
                 {preview.steps.map(({ step, anchor }) => (
                   <span
@@ -1101,7 +1103,7 @@ export function ColorSpaceView({
               disabled={candidateInfo.srgb === "OUT_OF_GAMUT"}
               onClick={() => commit(false)}
             >
-              提交主色
+              {t("space.submitPrimary")}
             </button>
             {candidateInfo.srgb === "OUT_OF_GAMUT" && (
               <button
@@ -1109,7 +1111,7 @@ export function ColorSpaceView({
                 className="outline-button"
                 onClick={() => commit(true)}
               >
-                映射到色域后提交
+                {t("space.mapThenSubmit")}
               </button>
             )}
             <button
@@ -1117,7 +1119,7 @@ export function ColorSpaceView({
               className="text-button"
               onClick={() => onCandidate(null)}
             >
-              放弃
+              {t("space.abandon")}
             </button>
           </div>
         </div>
@@ -1127,45 +1129,45 @@ export function ColorSpaceView({
           <button
             onClick={() => setRotation((r) => ({ ...r, yaw: r.yaw - 0.2 }))}
           >
-            向左旋转
+            {t("space.rotateLeft")}
           </button>
           <button
             onClick={() => setRotation((r) => ({ ...r, yaw: r.yaw + 0.2 }))}
           >
-            向右旋转
+            {t("space.rotateRight")}
           </button>
           <button onClick={() => setZoom((z) => Math.min(2, z + 0.1))}>
-            放大
+            {t("space.zoomIn")}
           </button>
           <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}>
-            缩小
+            {t("space.zoomOut")}
           </button>
           <button onClick={() => setPan((p) => ({ x: p.x - 20, y: 0 }))}>
-            左移视图
+            {t("space.panLeft")}
           </button>
           <button onClick={() => setPan((p) => ({ x: p.x + 20, y: 0 }))}>
-            右移视图
+            {t("space.panRight")}
           </button>
           <button
             onClick={() => {
               setRotation({ yaw: 0.6, pitch: 0.35 });
-              setZoom(1);
+              setZoom(1.6);
               setPan({ x: 0, y: 0 });
             }}
           >
-            重置视角
+            {t("space.resetView")}
           </button>
         </div>
       )}
       <details>
-        <summary>可访问的色彩数据表（{colors.length} 色）</summary>
+        <summary>{t("space.accessibleTable", { count: colors.length })}</summary>
         <div className="token-table">
           <table>
             <thead>
               <tr>
-                <th>颜色</th>
-                <th>设计 OKLCH</th>
-                <th>{space} 映射 OKLCH</th>
+                <th>{t("space.colColor")}</th>
+                <th>{t("space.colDesignOklch")}</th>
+                <th>{t("space.colMappedOklch", { space })}</th>
               </tr>
             </thead>
             <tbody>
@@ -1180,12 +1182,12 @@ export function ColorSpaceView({
                   </td>
                   <td>
                     {Object.values(colorDesign(c))
-                      .map((v) => v?.toFixed(5) ?? "不适用")
+                      .map((v) => v?.toFixed(5) ?? t("space.notApplicable"))
                       .join(" / ")}
                   </td>
                   <td>
                     {Object.values(colorOutput(c, space).mapped)
-                      .map((v) => v?.toFixed(5) ?? "不适用")
+                      .map((v) => v?.toFixed(5) ?? t("space.notApplicable"))
                       .join(" / ")}
                   </td>
                 </tr>

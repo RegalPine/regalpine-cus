@@ -12,26 +12,12 @@ import { useUIStore } from "../../stores/ui-store";
 import { useThemeEngine } from "../../hooks/useThemeEngine";
 import { useGamutSupport } from "../../hooks/useGamutSupport";
 import { usePersistence } from "../../hooks/usePersistence";
+import { useTokenList } from "../../hooks/useTokenList";
 import { PanelCard } from "../../shared/layout/PanelCard";
 import { SectionHeading } from "../../shared/layout/SectionHeading";
 import { GamutViewTabs } from "../../shell/GamutViewTabs";
 import { useT } from "../../i18n";
-
-/** 近似色域边界：在固定 h 下，L 对应的 max C */
-function gamutMaxC(l: number, h: number, gamut: "srgb" | "display-p3" | "rec2020"): number {
-  // 简化模型：不同色域的 max chroma 随 L 变化
-  const limits: Record<string, number> = {
-    rec2020: 0.42,
-    "display-p3": 0.37,
-    srgb: 0.27,
-  };
-  const maxLimit = limits[gamut] ?? 0.27;
-  // 钟形曲线：峰值在 L=0.5 附近
-  const lFactor = Math.max(0, 1 - Math.pow((l - 0.5) * 2.2, 2));
-  // 色相依赖性：某些色相方向色域更大
-  const hFactor = 1 + 0.15 * Math.sin(((h - 120) * Math.PI) / 180);
-  return maxLimit * lFactor * hFactor;
-}
+import { gamutMaxC } from "../../lib/gamut-utils";
 
 /** 生成色域边界路径（X=Chroma, Y=Lightness） */
 function gamutCutPath(h: number, gamut: "srgb" | "display-p3" | "rec2020", steps = 50): string {
@@ -113,26 +99,17 @@ export default function LCCutView() {
   const rec2020Path = useMemo(() => gamutCutPath(hueAngle, "rec2020"), [hueAngle]);
 
   // Token 在固定色相切面上的投影
-  const tokens = useMemo(() => {
-    const entries: { name: string; color: V2Color; oklch: ReturnType<typeof colorDesign> }[] = [];
-    for (const [step, color] of Object.entries(result.palette.primary)) {
-      entries.push({ name: `primary.${step}`, color, oklch: colorDesign(color) });
-    }
-    for (const [step, color] of Object.entries(result.palette.neutral)) {
-      entries.push({ name: `neutral.${step}`, color, oklch: colorDesign(color) });
-    }
-    return entries;
-  }, [result]);
+  const allTokens = useTokenList(result, "primary-neutral");
 
   // 在固定 h 切面上的 token（色相差 < 15° 的 token 投影到此切面）
   const projectedTokens = useMemo(() => {
     const tolerance = 15;
-    return tokens.filter((t) => {
+    return allTokens.filter((t) => {
       if (t.oklch.h === null) return false;
       const dh = Math.abs(((t.oklch.h - hueAngle + 540) % 360) - 180);
       return dh < tolerance;
     });
-  }, [tokens, hueAngle]);
+  }, [allTokens, hueAngle]);
 
   // L 坐标 → SVG y（L 向上增大，SVG y 向下增大，故反转）
   const lToY = useCallback((l: number) => padY + plotH - l * plotH, [plotH]);
@@ -156,7 +133,7 @@ export default function LCCutView() {
   }, [projectedTokens]);
 
   // Primary Scale 轨迹样条线路径
-  const trajectorySpline = useMemo(() => buildTrajectorySpline(tokens, lToY, cToX), [tokens, lToY, cToX]);
+  const trajectorySpline = useMemo(() => buildTrajectorySpline(allTokens, lToY, cToX), [allTokens, lToY, cToX]);
 
   // Out-of-gamut tokens 的光线追踪向量数据
   const rayTraceVectors = useMemo(() => {

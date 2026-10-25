@@ -4,11 +4,12 @@
  *
  * 布局：7col 表面层级可视化 + 5col 语义角色映射表 + 代码预览。
  */
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { colorDesign, renderColor, contrastRatio } from "@cus/color";
 import type { V2Color } from "@cus/core";
 import { SEMANTIC_ROLES } from "@cus/core";
 import { useBrandStore } from "../../stores/brand-store";
+import { useUIStore } from "../../stores/ui-store";
 import { useThemeEngine } from "../../hooks/useThemeEngine";
 import { useGamutSupport } from "../../hooks/useGamutSupport";
 import { usePersistence } from "../../hooks/usePersistence";
@@ -98,14 +99,22 @@ export default function SemanticSurfaceView() {
   const [focusRingOffset, setFocusRingOffset] = useState(2);
   const [hoverDeltaL, setHoverDeltaL] = useState(0.052);
   const [codeTab, setCodeTab] = useState<"css" | "json">("css");
-  const [toastMsg, setToastMsg] = useState("");
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [recalculating, setRecalculating] = useState(false);
 
   const showToast = useCallback((msg: string) => {
-    setToastMsg(msg);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToastMsg(""), 2200);
+    useUIStore.getState().setToast(msg);
   }, []);
+
+  // 自动重算语义绑定（模拟加载 + 微调参数）
+  const handleAutoRecalc = useCallback(() => {
+    setRecalculating(true);
+    setTimeout(() => {
+      // 微调 hoverDeltaL 模拟重算结果
+      setHoverDeltaL((prev) => Math.max(0.03, Math.min(0.08, prev + (Math.random() - 0.5) * 0.01)));
+      setRecalculating(false);
+      showToast(t("semantic.recalcDone"));
+    }, 800);
+  }, [showToast, t]);
 
   // ─── 5 Surface Tiers ───
   const surfaceTiers = useMemo((): SurfaceTier[] => {
@@ -292,12 +301,13 @@ ${roles}
               {t("semantic.wcagActiveBadge")}
             </div>
             <button
-              className="flex items-center gap-1.5 px-space-md py-1.5 rounded bg-surface-container hover:bg-surface-container-highest text-on-surface font-ui text-[13px] transition-colors"
-              onClick={() => showToast(t("semantic.recalcDone"))}
+              className="flex items-center gap-1.5 px-space-md py-1.5 rounded bg-surface-container hover:bg-surface-container-highest text-on-surface font-ui text-[13px] transition-colors disabled:opacity-50"
+              onClick={handleAutoRecalc}
+              disabled={recalculating}
               type="button"
             >
-              <MaterialIcon name="sync" size={16} className="text-primary" />
-              {t("semantic.autoRecalc")}
+              <MaterialIcon name={recalculating ? "hourglass_empty" : "sync"} size={16} className={`text-primary ${recalculating ? "animate-spin" : ""}`} />
+              {recalculating ? t("semantic.recalculating") : t("semantic.autoRecalc")}
             </button>
             <button
               className="flex items-center gap-1.5 px-space-md py-1.5 rounded bg-surface-container hover:bg-surface-container-highest text-on-surface-variant hover:text-on-surface font-ui text-[13px] transition-colors"
@@ -755,16 +765,6 @@ ${roles}
               </pre>
             </div>
           </PanelCard>
-        </div>
-      </div>
-
-      {/* Toast Notification */}
-      <div
-        className={`fixed bottom-10 right-8 z-50 transition-all duration-300 pointer-events-none ${toastMsg ? "translate-y-0 opacity-100" : "translate-y-20 opacity-0"}`}
-      >
-        <div className="flex items-center gap-space-sm px-space-md py-space-sm rounded-lg bg-surface-container-highest text-on-surface shadow-2xl">
-          <MaterialIcon name="check_circle" size={20} className="text-secondary" />
-          <span className="font-label-sm text-label-sm text-[13px]">{toastMsg}</span>
         </div>
       </div>
     </div>

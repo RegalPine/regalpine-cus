@@ -9,7 +9,7 @@
  * - 移除 GamutViewTabs（与应用级导航重复）
  * - 移除 View Mode Segments（旧 SVG 视图控制，与 3D 组件内置控制重复）
  */
-import { useMemo, useState } from "react";
+import { useState, useMemo, useCallback } from "react";
 import type { V2Color, RGBSpace } from "@cus/core";
 import { colorDesign, renderColor } from "@cus/color";
 import { useBrandStore } from "../../stores/brand-store";
@@ -17,20 +17,14 @@ import { useUIStore } from "../../stores/ui-store";
 import { useThemeEngine } from "../../hooks/useThemeEngine";
 import { useGamutSupport } from "../../hooks/useGamutSupport";
 import { usePersistence } from "../../hooks/usePersistence";
+import { useTokenList } from "../../hooks/useTokenList";
 import { PanelCard } from "../../shared/layout/PanelCard";
 import { SectionHeading } from "../../shared/layout/SectionHeading";
 import { GamutViewTabs } from "../../shell/GamutViewTabs";
 import { GamutVolume3D } from "../../components/GamutVolume3D";
 import { useT } from "../../i18n";
-
-/** 近似色域边界：在固定 h 下，L 对应的 max C */
-function gamutMaxC(l: number, h: number, gamut: "srgb" | "display-p3" | "rec2020"): number {
-  const limits: Record<string, number> = { rec2020: 0.42, "display-p3": 0.37, srgb: 0.27 };
-  const maxLimit = limits[gamut] ?? 0.27;
-  const lFactor = Math.max(0, 1 - Math.pow((l - 0.5) * 2.2, 2));
-  const hFactor = 1 + 0.15 * Math.sin(((h - 120) * Math.PI) / 180);
-  return maxLimit * lFactor * hFactor;
-}
+import { gamutMaxC } from "../../lib/gamut-utils";
+import { saveAs } from "file-saver";
 
 /** 2D Gamut Boundary Cut：h vs C 曲线 */
 function GamutBoundaryCut2D({
@@ -42,6 +36,7 @@ function GamutBoundaryCut2D({
   tokens: { name: string; color: V2Color; oklch: ReturnType<typeof colorDesign> }[];
   effectiveSpace: RGBSpace;
 }) {
+  const t = useT();
   const W = 700;
   const H = 160;
   const padL = 50;
@@ -69,13 +64,13 @@ function GamutBoundaryCut2D({
         <div className="flex items-center gap-space-sm">
           <span className="text-primary text-[20px]">◎</span>
           <span className="font-ui text-[16px] text-on-surface font-semibold">
-            2D Gamut Boundary Cut (Iso-Lightness L = {sliceL.toFixed(2)})
+            {t("gamutVolume.boundary2dTitle", { l: sliceL.toFixed(2) })}
           </span>
         </div>
         <div className="flex items-center gap-space-sm font-code-value text-[11px]">
-          <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-primary rounded-full" />Display P3</span>
-          <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-outline rounded-full" />sRGB</span>
-          <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-secondary rounded-full" />Rec.2020</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-primary rounded-full" />{t("gamutVolume.displayP3")}</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-outline rounded-full" />{t("gamutVolume.srgb")}</span>
+          <span className="flex items-center gap-1"><span className="w-2.5 h-1 bg-secondary rounded-full" />{t("gamutVolume.rec2020")}</span>
         </div>
       </div>
       <div className="relative w-full h-48 bg-surface-container-lowest rounded-lg p-space-sm overflow-hidden">
@@ -98,18 +93,18 @@ function GamutBoundaryCut2D({
 
           {/* Token points */}
           {tokens
-            .filter((t) => t.oklch.h !== null && Math.abs(t.oklch.l - sliceL) < 0.08)
-            .map((t) => {
-              const x = hToX(t.oklch.h!);
-              const y = cToY(t.oklch.c);
-              const srgbC = gamutMaxC(sliceL, t.oklch.h!, "srgb");
-              const isClipped = t.oklch.c > srgbC;
+            .filter((tok) => tok.oklch.h !== null && Math.abs(tok.oklch.l - sliceL) < 0.08)
+            .map((tok) => {
+              const x = hToX(tok.oklch.h!);
+              const y = cToY(tok.oklch.c);
+              const srgbC = gamutMaxC(sliceL, tok.oklch.h!, "srgb");
+              const isClipped = tok.oklch.c > srgbC;
               return (
-                <g key={t.name}>
-                  <circle cx={x} cy={y} r={isClipped ? 5 : 4} fill={renderColor(t.color, effectiveSpace)} stroke={isClipped ? "#ffb4ab" : "#fff"} strokeWidth={isClipped ? 1.5 : 1} />
+                <g key={tok.name}>
+                  <circle cx={x} cy={y} r={isClipped ? 5 : 4} fill={renderColor(tok.color, effectiveSpace)} stroke={isClipped ? "#ffb4ab" : "#fff"} strokeWidth={isClipped ? 1.5 : 1} />
                   {isClipped && (
                     <text x={x + 6} y={y - 4} fill="#ffb4ab" fontSize={10} fontFamily="JetBrains Mono">
-                      {t.name.split(".")[1]} [CLIPPED]
+                      {tok.name.split(".")[1]} {t("gamutVolume.clippedLabel")}
                     </text>
                   )}
                 </g>
@@ -118,7 +113,7 @@ function GamutBoundaryCut2D({
 
           {/* Y-axis label */}
           <text x={12} y={padT + plotH / 2} fill="#908fa0" fontSize={10} textAnchor="middle" fontFamily="Inter" transform={`rotate(-90, 12, ${padT + plotH / 2})`}>
-            Max Chroma (C)
+            {t("gamutVolume.maxChromaY")}
           </text>
         </svg>
       </div>
@@ -139,23 +134,93 @@ export default function GamutVolumeView() {
   const [activeStrategy, setActiveStrategy] = useState(0);
 
   // Token 数据
-  const tokens = useMemo(() => {
-    const entries: { name: string; color: V2Color; oklch: ReturnType<typeof colorDesign> }[] = [];
-    for (const [step, color] of Object.entries(result.palette.primary)) {
-      entries.push({ name: `primary.${step}`, color, oklch: colorDesign(color) });
-    }
-    for (const [step, color] of Object.entries(result.palette.neutral)) {
-      entries.push({ name: `neutral.${step}`, color, oklch: colorDesign(color) });
-    }
-    return entries;
-  }, [result]);
+  const tokens = useTokenList(result, "primary-neutral");
 
   // Out-of-gamut tokens
-  const clippedTokens = tokens.filter((t) => {
-    if (t.oklch.h === null) return false;
-    const srgbC = gamutMaxC(t.oklch.l, t.oklch.h!, "srgb");
-    return t.oklch.c > srgbC;
+  const clippedTokens = tokens.filter((tok) => {
+    if (tok.oklch.h === null) return false;
+    const srgbC = gamutMaxC(tok.oklch.l, tok.oklch.h!, "srgb");
+    return tok.oklch.c > srgbC;
   });
+
+  // 色域边界数据（用于导出）
+  const huePoints = useMemo(() => {
+    const pts: { h: number; l: number; maxC: number }[] = [];
+    for (let h = 0; h < 360; h += 10) {
+      for (let l = 0.05; l <= 0.95; l += 0.1) {
+        const mc = gamutMaxC(l, h, effectiveSpace);
+        pts.push({ h, l, maxC: mc });
+      }
+    }
+    return pts;
+  }, [effectiveSpace]);
+
+  // 导出处理函数
+  const handleExportLUT = useCallback(() => {
+    const header = "Hue,Degree,Lightness,MaxChroma\n";
+    const rows = huePoints.map((p) => `${p.h},${(p.h * Math.PI) / 180},${p.l.toFixed(2)},${p.maxC.toFixed(4)}`).join("\n");
+    const blob = new Blob([header + rows], { type: "text/csv;charset=utf-8" });
+    saveAs(blob, "gamut-lut.csv");
+    useUIStore.getState().setToast(t("gamutVolume.exportSuccess", { format: "LUT CSV" }));
+  }, [huePoints, t]);
+
+  const handleExportICC = useCallback(() => {
+    const meta = {
+      profileName: "CUS-OKLCH-Gamut",
+      version: "1.0.0",
+      colorSpace: "OKLCH",
+      renderingIntent: "perceptual",
+      whitePoint: { X: 0.9505, Y: 1.0, Z: 1.089 },
+      gamutVolume: huePoints.reduce((s, p) => s + p.maxC, 0),
+      tokenCount: tokens.length,
+      timestamp: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(meta, null, 2)], { type: "application/json;charset=utf-8" });
+    saveAs(blob, "cus-gamut-profile.json");
+    useUIStore.getState().setToast(t("gamutVolume.exportSuccess", { format: "ICC Profile JSON" }));
+  }, [huePoints, tokens.length, t]);
+
+  const handleExportGLTF = useCallback(() => {
+    const positions = huePoints.flatMap((p) => {
+      const rad = (p.h * Math.PI) / 180;
+      return [p.maxC * Math.cos(rad), p.l - 0.5, p.maxC * Math.sin(rad)];
+    });
+    const gltf = {
+      asset: { version: "2.0", generator: "CUS-Designer" },
+      scene: 0,
+      scenes: [{ nodes: [0] }],
+      nodes: [{ mesh: 0, name: "GamutVolume" }],
+      meshes: [{ primitives: [{ attributes: { POSITION: 0 }, mode: 0 }] }],
+      accessors: [{ bufferView: 0, componentType: 5126, count: positions.length / 3, type: "VEC3", max: [1, 1, 1], min: [-1, 0, -1] }],
+      bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: positions.length * 4 }],
+      buffers: [{ byteLength: positions.length * 4 }],
+    };
+    const blob = new Blob([JSON.stringify(gltf, null, 2)], { type: "model/gltf+json;charset=utf-8" });
+    saveAs(blob, "gamut-volume.gltf");
+    useUIStore.getState().setToast(t("gamutVolume.exportSuccess", { format: "glTF Mesh" }));
+  }, [huePoints, t]);
+
+  const handleExportSVG = useCallback(() => {
+    const W = 600, H = 300, pad = 30;
+    const plotW = W - 2 * pad, plotH = H - 2 * pad;
+    const xOf = (h: number) => pad + (h / 360) * plotW;
+    const yOf = (c: number) => pad + plotH - (c / 0.4) * plotH;
+    const paths = ["srgb", "display-p3"].map((space) => {
+      const pts = Array.from({ length: 37 }, (_, i) => {
+        const h = i * 10;
+        const mc = gamutMaxC(0.65, h, space as RGBSpace);
+        return `${xOf(h)},${yOf(mc)}`;
+      });
+      const color = space === "srgb" ? "#6C63FF" : "#00BFA5";
+      return `<polyline points="${pts.join(" ")}" fill="none" stroke="${color}" stroke-width="2"/>`;
+    });
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${W} ${H}"><rect width="${W}" height="${H}" fill="#1a1a2e"/>${paths.join("")}<text x="${W / 2}" y="${H - 5}" fill="#908fa0" font-size="11" text-anchor="middle">Hue (0°–360°) @ L=0.65</text></svg>`;
+    const blob = new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+    saveAs(blob, "gamut-boundary.svg");
+    useUIStore.getState().setToast(t("gamutVolume.exportSuccess", { format: "SVG Slice" }));
+  }, [t]);
+
+  const exportHandlers = [handleExportLUT, handleExportICC, handleExportGLTF, handleExportSVG];
 
   return (
     <div className="flex flex-col w-full">
@@ -164,7 +229,7 @@ export default function GamutVolumeView() {
         <GamutViewTabs />
         <div className="flex items-center gap-space-xs bg-surface-container-lowest px-space-sm py-1 rounded">
           <span className="w-1.5 h-1.5 rounded-full bg-secondary" />
-          <span className="font-code-value text-[11px] text-on-surface-variant">P3: {result.validation.counts.PASS} pass</span>
+          <span className="font-code-value text-[11px] text-on-surface-variant">{t("gamutVolume.passCount", { count: result.validation.counts.PASS })}</span>
         </div>
       </section>
 
@@ -172,7 +237,7 @@ export default function GamutVolumeView() {
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-space-md mb-space-md">
         {/* 3D WebGL Viewport (8 cols) */}
         <div className="xl:col-span-8 flex flex-col gap-space-md">
-          <GamutVolume3D result={result} />
+          <GamutVolume3D result={result} strategy={activeStrategy} />
 
           {/* 2D Gamut Boundary Cut */}
           <GamutBoundaryCut2D sliceL={sliceL} tokens={tokens} effectiveSpace={effectiveSpace} />
@@ -206,19 +271,19 @@ export default function GamutVolumeView() {
               <div className="mt-space-xs flex flex-col gap-1.5">
                 <div className="flex items-center justify-between font-label-sm text-label-sm uppercase tracking-wider text-outline px-1">
                   <span>{t("gamutVolume.clippedTokens")}</span>
-                  <span>ΔE 2000</span>
+                  <span>{t("gamutVolume.deltaE2000")}</span>
                 </div>
-                {clippedTokens.slice(0, 3).map((t) => (
-                  <div key={t.name} className="p-2 rounded bg-surface-container-lowest flex items-center justify-between font-code-value text-code-value">
+                {clippedTokens.slice(0, 3).map((tok) => (
+                  <div key={tok.name} className="p-2 rounded bg-surface-container-lowest flex items-center justify-between font-code-value text-code-value">
                     <div className="flex items-center gap-2">
-                      <span className="w-4 h-4 rounded shadow-xs" style={{ background: renderColor(t.color, effectiveSpace) }} />
+                      <span className="w-4 h-4 rounded shadow-xs" style={{ background: renderColor(tok.color, effectiveSpace) }} />
                       <div className="flex flex-col">
-                        <span className="text-on-surface font-semibold text-[11px]">{t.name}</span>
-                        <span className="text-outline text-[10px]">P3: {(t.oklch.l * 100).toFixed(0)}% {t.oklch.c.toFixed(2)} {t.oklch.h?.toFixed(0)}°</span>
+                        <span className="text-on-surface font-semibold text-[11px]">{tok.name}</span>
+                        <span className="text-outline text-[10px]">P3: {(tok.oklch.l * 100).toFixed(0)}% {tok.oklch.c.toFixed(2)} {tok.oklch.h?.toFixed(0)}°</span>
                       </div>
                     </div>
                     <span className="px-1.5 py-0.5 rounded bg-surface-container-high text-secondary text-[11px] font-bold">
-                      {(t.oklch.c - gamutMaxC(t.oklch.l, t.oklch.h!, "srgb")).toFixed(1)} ΔE
+                      {(tok.oklch.c - gamutMaxC(tok.oklch.l, tok.oklch.h!, "srgb")).toFixed(1)} ΔE
                     </span>
                   </div>
                 ))}
@@ -231,10 +296,10 @@ export default function GamutVolumeView() {
             <SectionHeading eyebrow={t("gamutVolume.envelopesEyebrow")} title={t("gamutVolume.envelopesTitle")} badge={t("gamutVolume.envelopesBadge")} />
             <div className="flex flex-col gap-2">
               {[
-                { l: 0.9, label: "L = 0.90 (High Key)" },
-                { l: 0.7, label: "L = 0.70 (Pastel / Mid)" },
-                { l: 0.5, label: "L = 0.50 (Max Chroma Peak)" },
-                { l: 0.3, label: "L = 0.30 (Deep Shadow)" },
+                { l: 0.9, label: t("gamutVolume.highKey") },
+                { l: 0.7, label: t("gamutVolume.pastelMid") },
+                { l: 0.5, label: t("gamutVolume.maxChromaPeak") },
+                { l: 0.3, label: t("gamutVolume.deepShadow") },
               ].map(({ l, label }) => {
                 const srgbMax = gamutMaxC(l, 0, "srgb");
                 const p3Max = gamutMaxC(l, 0, "display-p3");
@@ -255,7 +320,7 @@ export default function GamutVolumeView() {
                     <div className="flex justify-between font-code-value text-[9px] text-on-surface-variant">
                       <span>sRGB: {srgbMax.toFixed(3)}</span>
                       <span>P3: {p3Max.toFixed(3)}</span>
-                      <span className={Math.abs(sliceL - l) < 0.1 ? "text-primary font-semibold" : ""}>{utilization.toFixed(0)}% used</span>
+                      <span className={Math.abs(sliceL - l) < 0.1 ? "text-primary font-semibold" : ""}>{t("gamutVolume.percentUsed", { pct: utilization.toFixed(0) })}</span>
                     </div>
                   </div>
                 );
@@ -275,11 +340,11 @@ export default function GamutVolumeView() {
                 { label: t("gamutVolume.iccLabel"), desc: t("gamutVolume.iccDesc") },
                 { label: t("gamutVolume.gltfLabel"), desc: t("gamutVolume.gltfDesc") },
                 { label: t("gamutVolume.svgLabel"), desc: t("gamutVolume.svgDesc") },
-              ].map(({ label, desc }) => (
+              ].map(({ label, desc }, idx) => (
                 <button
                   key={label}
                   className="px-space-md py-2 rounded bg-surface-container hover:bg-surface-container-high text-on-surface font-label-md text-label-md flex flex-col items-start gap-0.5 transition-colors"
-                  onClick={() => useUIStore.getState().setToast(`${label} ${t("gamutVolume.exportComingSoon")}`)}
+                  onClick={exportHandlers[idx]}
                 >
                   <span className="font-semibold text-[12px]">{label}</span>
                   <span className="font-code-value text-[10px] text-outline">{desc}</span>

@@ -5,15 +5,17 @@
  * 布局：快速操作 + 4 个指标卡 + 筛选栏 + 11×11 交叉对比矩阵 + 检查器 + CVD 模拟器。
  */
 import { useMemo, useState, useCallback } from "react";
-import { contrastRatio, colorDesign, renderColor } from "@cus/color";
+import { contrastRatio, colorDesign, renderColor, hexToOklch, createOklchColor } from "@cus/color";
 import type { V2Color, ThemeMode } from "@cus/core";
 import { useBrandStore } from "../../stores/brand-store";
 import { simulateCVDColor } from "../../lib/cvd-sim";
 import type { CVDType } from "../../lib/cvd-sim";
 import { useViewStore } from "../../stores/view-store";
+import { useUIStore } from "../../stores/ui-store";
 import { useThemeEngine } from "../../hooks/useThemeEngine";
 import { useGamutSupport } from "../../hooks/useGamutSupport";
 import { usePersistence } from "../../hooks/usePersistence";
+import { useBrandInput } from "../../hooks/useBrandInput";
 import { PanelCard } from "../../shared/layout/PanelCard";
 import { SectionHeading } from "../../shared/layout/SectionHeading";
 import { MaterialIcon } from "../../shared/icons/MaterialIcon";
@@ -22,7 +24,7 @@ import type { TranslationKey } from "../../i18n";
 
 type ContrastStatus = "aaa" | "aa" | "large" | "fail";
 
-function getStatus(ratio: number): ContrastStatus {
+export function getStatus(ratio: number): ContrastStatus {
   if (ratio >= 7) return "aaa";
   if (ratio >= 4.5) return "aa";
   if (ratio >= 3) return "large";
@@ -58,6 +60,7 @@ interface MatrixCell {
   fgColor: V2Color;
   ratio: number;
   status: ContrastStatus;
+  visible?: boolean;
 }
 
 /** APCA Lc 近似计算（基于 OKLCH L 差值） */
@@ -110,6 +113,7 @@ export default function ContrastMatrixView() {
   const mode = useViewStore((s) => s.mode);
   const { effectiveSpace } = useGamutSupport(useBrandStore((s) => s.space));
   const { result } = useThemeEngine(brand, designOptions);
+  const actions = useBrandInput(result.brand.alpha);
 
   const [filter, setFilter] = useState<FilterMode>("all");
   const [metricMode, setMetricMode] = useState<MetricMode>("wcag");
@@ -177,33 +181,131 @@ export default function ContrastMatrixView() {
     return { total, aaa, aa, large, fail, aaaRate };
   }, [matrix]);
 
-  // 过滤
+  // 过滤（保持列位置，不符合条件的显示为空）
   const filteredMatrix = useMemo(() => {
-    if (filter === "all") return matrix;
+    if (filter === "all") return matrix.map(row => row.map(cell => ({ ...cell, visible: true })));
     return matrix.map((row) =>
-      row.filter((cell) => {
+      row.map((cell) => {
+        let visible = false;
         switch (filter) {
-          case "passing": return cell.status === "aaa" || cell.status === "aa";
-          case "failing": return cell.status === "fail" || cell.status === "large";
+          case "passing": visible = cell.status === "aaa" || cell.status === "aa"; break;
+          case "failing": visible = cell.status === "fail" || cell.status === "large"; break;
           case "dark-on-light": {
             const bgL = colorDesign(cell.bgColor).l;
             const fgL = colorDesign(cell.fgColor).l;
-            return fgL < bgL;
+            visible = fgL < bgL;
+            break;
           }
           case "light-on-dark": {
             const bgL = colorDesign(cell.bgColor).l;
             const fgL = colorDesign(cell.fgColor).l;
-            return fgL > bgL;
+            visible = fgL > bgL;
+            break;
           }
-          case "high-contrast": return cell.ratio >= 7;
-          case "low-contrast": return cell.ratio < 4.5;
-          default: return true;
+          case "high-contrast": visible = cell.ratio >= 7; break;
+          case "low-contrast": visible = cell.ratio < 4.5; break;
+          default: visible = true;
         }
+        return { ...cell, visible };
       }),
     );
   }, [matrix, filter]);
 
-  const handleFilterChange = useCallback((f: FilterMode) => setFilter(f), []);
+  // 生成智能配色建议
+  const generateAdvice = useCallback(() => {
+    if (!selectedCell) {
+      useUIStore.getState().setToast(t("contrast.selectCellFirst"));
+      return;
+    }
+    
+    const ratio = selectedCell.ratio;
+    const bgL = colorDesign(selectedCell.bgColor).l;
+    const fgL = colorDesign(selectedCell.fgColor).l;
+    
+    let advice = "";
+    let targetL = fgL;
+    
+    if (ratio < 3) {
+      // 严重不合规
+      if (bgL > 0.5) {
+        // 浅色背景，需要更暗的前景
+        targetL = Math.max(0.1, bgL - 0.5);
+        advice = t("contrast.adviceDarken", { ratio: ratio.toFixed(1), target: targetL.toFixed(2) });
+      } else {
+        // 深色背景，需要更亮的前景
+        targetL = Math.min(0.95, bgL + 0.5);
+        advice = t("contrast.adviceLighten", { ratio: ratio.toFixed(1), target: targetL.toFixed(2) });
+      }
+    } else if (ratio < 4.5) {
+      // AA 不合规
+      if (bgL > 0.5) {
+        targetL = Math.max(0.15, bgL - 0.4);
+        advice = t("contrast.adviceSlightDarken", { ratio: ratio.toFixed(1), target: targetL.toFixed(2) });
+      } else {
+        targetL = Math.min(0.9, bgL + 0.4);
+        advice = t("contrast.adviceSlightLighten", { ratio: ratio.toFixed(1), target: targetL.toFixed(2) });
+      }
+    } else if (ratio < 7) {
+      // AA 合规但 AAA 不合规
+      advice = t("contrast.adviceAAA", { ratio: ratio.toFixed(1) });
+    } else {
+      // AAA 合规
+      advice = t("contrast.advicePerfect", { ratio: ratio.toFixed(1) });
+    }
+    
+    // 显示建议（使用 Toast）
+    useUIStore.getState().setToast(advice);
+  }, [selectedCell, t]);
+
+  // 应用对比度补偿：调整前景色亮度以达到 WCAG AA (4.5:1)
+  const applyCompensation = useCallback(() => {
+    if (!selectedCell) return;
+    
+    const targetRatio = 4.5; // WCAG AA
+    const bgL = colorDesign(selectedCell.bgColor).l;
+    const fgOklch = hexToOklch(renderColor(selectedCell.fgColor, effectiveSpace));
+    
+    // 二分查找目标亮度
+    let minL = 0.1;
+    let maxL = 0.95;
+    let optimalL = fgOklch.l;
+    
+    // 判断是深色还是浅色背景
+    const isDarkBg = bgL < 0.5;
+    
+    for (let i = 0; i < 20; i++) {
+      const testL = (minL + maxL) / 2;
+      const testColor = createOklchColor({ ...fgOklch, l: testL }, 1);
+      const testHex = testColor.hex;
+      const bgHex = renderColor(selectedCell.bgColor, effectiveSpace);
+      
+      try {
+        const ratio = contrastRatio(testHex, bgHex);
+        
+        if (ratio >= targetRatio) {
+          optimalL = testL;
+          // 继续查找更接近边界的值
+          if (isDarkBg) {
+            maxL = testL; // 尝试更亮
+          } else {
+            minL = testL; // 尝试更暗
+          }
+        } else {
+          if (isDarkBg) {
+            minL = testL; // 需要更亮
+          } else {
+            maxL = testL; // 需要更暗
+          }
+        }
+      } catch {
+        break;
+      }
+    }
+    
+    // 应用调整后的颜色
+    actions.applyLch({ ...fgOklch, l: optimalL });
+    useUIStore.getState().setToast(t("contrast.compensationApplied"));
+  }, [selectedCell, effectiveSpace, actions, t]);
 
   const filterButtons: { value: FilterMode; label: string }[] = [
     { value: "all", label: `${t("contrast.allComb")} (${stats.total})` },
@@ -222,15 +324,15 @@ export default function ContrastMatrixView() {
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-space-md">
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-space-sm">
-              <span className="px-space-xs py-0.5 rounded bg-primary-container text-on-primary-container font-code-value text-[11px] tracking-wide uppercase">CUS Core Auditing</span>
+              <span className="px-space-xs py-0.5 rounded bg-primary-container text-on-primary-container font-code-value text-[11px] tracking-wide uppercase">{t("contrast.auditingBadge")}</span>
               <span className="text-secondary font-code-value text-[11px] flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-secondary" />
-                Realtime Spectral Engine
+                {t("contrast.spectralEngine")}
               </span>
             </div>
             <h1 className="font-ui text-[20px] text-on-surface font-semibold tracking-tight flex items-center gap-space-md">
-              Contrast Matrix & Accessibility Auditor
-              <span className="font-code-value text-[12px] text-outline-variant font-normal">WCAG 2.2 · APCA Lc Engine</span>
+              {t("contrast.pageTitle")}
+              <span className="font-code-value text-[12px] text-outline-variant font-normal">{t("contrast.wcagLcEngine")}</span>
             </h1>
           </div>
           {/* Quick Action Cluster */}
@@ -248,7 +350,7 @@ export default function ContrastMatrixView() {
             </button>
             <button
               className="flex items-center gap-1.5 px-space-md py-1.5 rounded bg-primary text-on-primary font-label-md text-label-md hover:bg-primary-fixed-dim transition-colors shadow-sm whitespace-nowrap shrink-0"
-              onClick={() => alert(t("contrast.adviceAlert"))}
+              onClick={generateAdvice}
             >
               <MaterialIcon name="auto_fix_high" size={16} />
               {t("contrast.genAdvice")}
@@ -260,11 +362,11 @@ export default function ContrastMatrixView() {
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-space-md">
           <div className="bg-surface-container p-space-md rounded-xl flex flex-col justify-between shadow-sm">
             <div className="flex items-center justify-between mb-1">
-              <span className="font-ui text-[11px] text-outline uppercase tracking-wider">WCAG AAA Compliance</span>
+              <span className="font-ui text-[11px] text-outline uppercase tracking-wider">{t("contrast.aaaCompliance")}</span>
             </div>
             <div className="flex items-baseline gap-space-sm">
               <span className="font-code-value text-[28px] font-semibold text-secondary">{stats.aaaRate.toFixed(1)}%</span>
-              <span className="font-code-value text-code-value text-on-surface-variant">{stats.aaa + stats.aa} / {stats.total} pairs</span>
+              <span className="font-code-value text-code-value text-on-surface-variant">{stats.aaa + stats.aa} / {stats.total} {t("contrast.pairsSuffix")}</span>
             </div>
             <div className="w-full bg-surface-container-lowest h-1.5 rounded-full mt-3 overflow-hidden">
               <div className="bg-secondary h-full rounded-full transition-all" style={{ width: `${stats.aaaRate}%` }} />
@@ -273,11 +375,11 @@ export default function ContrastMatrixView() {
 
           <div className="bg-surface-container p-space-md rounded-xl flex flex-col justify-between shadow-sm">
             <div className="flex items-center justify-between mb-1">
-              <span className="font-ui text-[11px] text-outline uppercase tracking-wider">WCAG AA (≥4.5:1)</span>
+              <span className="font-ui text-[11px] text-outline uppercase tracking-wider">{t("contrast.aaThreshold")}</span>
             </div>
             <div className="flex items-baseline gap-space-sm">
               <span className="font-code-value text-[28px] font-semibold text-primary">{stats.aa}</span>
-              <span className="font-code-value text-code-value text-on-surface-variant">AA pairs</span>
+              <span className="font-code-value text-code-value text-on-surface-variant">{t("contrast.aaPairs")}</span>
             </div>
           </div>
 
@@ -287,7 +389,7 @@ export default function ContrastMatrixView() {
             </div>
             <div className="flex items-baseline gap-space-sm">
               <span className="font-code-value text-[28px] font-semibold text-on-surface">{stats.fail}</span>
-              <span className="font-code-value text-code-value text-tertiary">{stats.large} large-text warnings</span>
+              <span className="font-code-value text-code-value text-tertiary">{stats.large} {t("contrast.largeTextWarnings")}</span>
             </div>
           </div>
 
@@ -297,11 +399,11 @@ export default function ContrastMatrixView() {
             </div>
             <div className="flex items-baseline gap-space-sm">
               <span className="font-ui text-[16px] font-semibold text-on-surface">WCAG 2.2</span>
-              <span className="font-code-value text-code-value text-secondary">OKLCH calibrated</span>
+              <span className="font-code-value text-code-value text-secondary">{t("contrast.oklchCalibrated")}</span>
             </div>
             <div className="flex items-center gap-space-xs mt-2 text-outline font-code-value text-[11px]">
               <span className="w-1.5 h-1.5 rounded-full bg-secondary" />
-              {effectiveSpace} gamut preservation
+              {effectiveSpace} {t("contrast.gamutPreservation")}
             </div>
           </div>
         </div>
@@ -318,7 +420,7 @@ export default function ContrastMatrixView() {
                   ? "bg-primary text-on-primary font-semibold shadow-sm"
                   : "bg-surface-container text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high"
               }`}
-              onClick={() => handleFilterChange(btn.value)}
+              onClick={() => setFilter(btn.value)}
             >
               {btn.label}
             </button>
@@ -335,7 +437,7 @@ export default function ContrastMatrixView() {
               }`}
               onClick={() => setMetricMode(m)}
             >
-              {m === "wcag" ? t("contrast.wcagRatio") : m === "apca" ? "APCA Lc" : t("contrast.dualMode")}
+              {m === "wcag" ? t("contrast.wcagRatio") : m === "apca" ? t("contrast.apcaLcLabel") : t("contrast.dualMode")}
             </button>
           ))}
         </div>
@@ -350,13 +452,13 @@ export default function ContrastMatrixView() {
               <span className="font-ui text-[13px] font-semibold text-on-surface flex items-center gap-1">
                 {t("contrast.matrixTitle")}
               </span>
-              <span className="text-outline font-code-value text-[11px]">Y: Bg × X: Fg</span>
+              <span className="text-outline font-code-value text-[11px]">{t("contrast.matrixAxes")}</span>
             </div>
             <div className="flex items-center gap-space-md font-code-value text-[11px] text-outline">
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-secondary-container" />AAA ≥7.0</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-primary-container" />AA ≥4.5</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-tertiary-container" />LG ≥3.0</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-error-container" />Fail &lt;3.0</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-secondary-container" />{t("contrast.legendAaa")}</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-primary-container" />{t("contrast.legendAa")}</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-tertiary-container" />{t("contrast.legendLg")}</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded bg-error-container" />{t("contrast.legendFail")}</span>
             </div>
           </div>
 
@@ -365,7 +467,7 @@ export default function ContrastMatrixView() {
             <table className="w-full table-fixed border-collapse font-code-value text-[11px]">
               <thead>
                 <tr className="bg-surface-container-lowest text-on-surface-variant">
-                  <th className="w-20 p-2 text-left sticky left-0 z-20 bg-surface-container-lowest font-medium text-outline">Bg \ Fg</th>
+                  <th className="w-20 p-2 text-left sticky left-0 z-20 bg-surface-container-lowest font-medium text-outline">{t("contrast.tableHeader")}</th>
                   {colorSteps.map((s) => (
                     <th key={s.name} className="p-1 text-center font-medium">{s.name}</th>
                   ))}
@@ -381,15 +483,19 @@ export default function ContrastMatrixView() {
                     {row.map((cell, ci) => (
                       <td
                         key={ci}
-                        className={`p-1 text-center cursor-pointer transition-all duration-150 relative group ${
+                        className={`p-1 text-center transition-all duration-150 relative group ${
                           selectedCell === cell ? "ring-1 ring-primary" : ""
                         }`}
-                        onClick={() => setSelectedCell(cell)}
+                        onClick={() => cell.visible !== false && setSelectedCell(cell)}
                       >
-                        <div className={`flex flex-col items-center justify-center py-1 rounded hover:bg-surface-container ${statusColor(cell.status)} transition-colors`}>
-                          <span className="font-bold text-[11px]">{cell.ratio.toFixed(1)}:1</span>
-                          <span className="text-[9px] px-1 rounded mt-0.5 uppercase">{statusLabel(cell.status)}</span>
-                        </div>
+                        {cell.visible !== false ? (
+                          <div className={`flex flex-col items-center justify-center py-1 rounded hover:bg-surface-container ${statusColor(cell.status)} transition-colors cursor-pointer`}>
+                            <span className="font-bold text-[11px]">{cell.ratio.toFixed(1)}:1</span>
+                            <span className="text-[9px] px-1 rounded mt-0.5 uppercase">{statusLabel(cell.status)}</span>
+                          </div>
+                        ) : (
+                          <div className="py-1" />
+                        )}
                       </td>
                     ))}
                   </tr>
@@ -402,7 +508,31 @@ export default function ContrastMatrixView() {
         {/* Inspector (4 cols) */}
         <div className="2xl:col-span-4 flex flex-col gap-space-md">
           <PanelCard level="low">
-            <SectionHeading eyebrow="INSPECTOR" title={t("contrast.inspectorTitle")} />
+            <div className="flex items-center justify-between mb-3">
+              <SectionHeading eyebrow="INSPECTOR" title={t("contrast.inspectorTitle")} />
+              {/* CVD Filter Dropdown */}
+              <div className="flex items-center gap-space-xs">
+                <label htmlFor="cvd-select" className="font-label-sm text-label-sm text-outline whitespace-nowrap">
+                  {t("contrast.cvdTitle")}
+                </label>
+                <select
+                  id="cvd-select"
+                  value={cvdMode}
+                  onChange={(e) => setCvdMode(e.target.value as CvdMode)}
+                  className="px-space-sm py-1 rounded-lg bg-surface-container-lowest border border-outline/20 text-on-surface font-code-value text-[11px] cursor-pointer hover:bg-surface-container-high focus:outline-none focus:ring-1 focus:ring-primary transition-colors"
+                >
+                  {(Object.keys(cvdLabelKeys) as CvdMode[]).map((m) => (
+                    <option key={m} value={m}>
+                      {t(cvdLabelKeys[m])}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            {/* CVD Alert */}
+            <div className="mb-3">
+              <span className="font-code-value text-[10px] text-on-surface-variant">{t(cvdAlertKeys[cvdMode])}</span>
+            </div>
             {selectedCell ? (
               <div className="flex flex-col gap-space-sm">
                 <div className="flex items-center gap-space-md">
@@ -423,16 +553,16 @@ export default function ContrastMatrixView() {
                 {/* WCAG thresholds */}
                 <div className="flex flex-col gap-1 font-code-value text-code-value text-[11px]">
                   <div className="flex justify-between items-center">
-                    <span className="text-outline">AAA (≥7.0:1)</span>
-                    <span className={selectedCell.ratio >= 7 ? "text-secondary" : "text-error"}>{selectedCell.ratio >= 7 ? "PASS" : "FAIL"}</span>
+                    <span className="text-outline">{t("contrast.aaaThreshold")}</span>
+                    <span className={selectedCell.ratio >= 7 ? "text-secondary" : "text-error"}>{selectedCell.ratio >= 7 ? t("contrast.pass") : t("contrast.failStatus")}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-outline">AA (≥4.5:1)</span>
-                    <span className={selectedCell.ratio >= 4.5 ? "text-primary" : "text-error"}>{selectedCell.ratio >= 4.5 ? "PASS" : "FAIL"}</span>
+                    <span className="text-outline">{t("contrast.aaThreshold")}</span>
+                    <span className={selectedCell.ratio >= 4.5 ? "text-primary" : "text-error"}>{selectedCell.ratio >= 4.5 ? t("contrast.pass") : t("contrast.failStatus")}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-outline">Large (≥3.0:1)</span>
-                    <span className={selectedCell.ratio >= 3 ? "text-tertiary" : "text-error"}>{selectedCell.ratio >= 3 ? "PASS" : "FAIL"}</span>
+                    <span className="text-outline">{t("contrast.largeThreshold")}</span>
+                    <span className={selectedCell.ratio >= 3 ? "text-tertiary" : "text-error"}>{selectedCell.ratio >= 3 ? t("contrast.pass") : t("contrast.failStatus")}</span>
                   </div>
                 </div>
                 {/* Enhanced Live Typography Preview */}
@@ -457,19 +587,19 @@ export default function ContrastMatrixView() {
                         }}
                       >
                         <div>
-                          <span className="font-code-value text-[10px] opacity-60 block">24px Bold Headline</span>
+                          <span className="font-code-value text-[10px] opacity-60 block">{t("contrast.headlinePreview")}</span>
                           <p className="font-ui text-[24px] font-semibold leading-tight tracking-tight">
                             {t("contrast.liveHeadline")}
                           </p>
                         </div>
                         <div>
-                          <span className="font-code-value text-[10px] opacity-60 block">14px Regular Body (WCAG 4.5:1 / APCA 75)</span>
+                          <span className="font-code-value text-[10px] opacity-60 block">{t("contrast.bodyPreview")}</span>
                           <p className="font-ui text-[14px] leading-relaxed">
                             {t("contrast.liveBody")}
                           </p>
                         </div>
                         <div className="flex items-center justify-between pt-1">
-                          <span className="font-code-value text-[11px] opacity-75">11px Caption Token: {selectedCell.fgName}</span>
+                          <span className="font-code-value text-[11px] opacity-75">{t("contrast.captionToken")}: {selectedCell.fgName}</span>
                           <button
                             className="px-space-sm py-1 rounded font-label-sm text-label-sm font-semibold flex items-center gap-1 shadow-sm hover:opacity-90 transition-opacity"
                             style={{
@@ -533,13 +663,13 @@ export default function ContrastMatrixView() {
                   d={`M 30,40 Q 80,15 120,12 T 195,8`}
                   fill="none" stroke="#4edea3" strokeWidth={1.5} opacity={0.8}
                 />
-                <text x={160} y={6} fill="#4edea3" fontSize={7} fontFamily="JetBrains Mono">LoD +bonus</text>
+                <text x={160} y={6} fill="#4edea3" fontSize={7} fontFamily="JetBrains Mono">{t("contrast.lodBonus")}</text>
                 {/* Dark-on-light penalty curve (orange) */}
                 <path
                   d={`M 30,40 Q 80,62 120,65 T 195,70`}
                   fill="none" stroke="#ffb783" strokeWidth={1.5} opacity={0.8}
                 />
-                <text x={160} y={78} fill="#ffb783" fontSize={7} fontFamily="JetBrains Mono">DoL -penalty</text>
+                <text x={160} y={78} fill="#ffb783" fontSize={7} fontFamily="JetBrains Mono">{t("contrast.dolPenalty")}</text>
                 {/* Zero line label */}
                 <text x={195} y={37} fill="#908fa0" fontSize={6} textAnchor="end" fontFamily="JetBrains Mono">ΔL=0</text>
               </svg>
@@ -612,7 +742,7 @@ export default function ContrastMatrixView() {
                     if (passWCAG === passAPCA) return null;
                     return (
                       <span key={s.name} className="px-1.5 py-0.5 rounded bg-error-container/20 text-error text-[10px] font-code-value font-medium">
-                        {s.name} {passWCAG ? "WCAG✓" : "APCA✓"}
+                        {s.name} {passWCAG ? t("contrast.wcagPassLabel") : t("contrast.apcaPassLabel")}
                       </span>
                     );
                   })}
@@ -633,28 +763,7 @@ export default function ContrastMatrixView() {
             </div>
           </PanelCard>
 
-          {/* CVD Color Vision Deficiency Simulator */}
-          <PanelCard level="low">
-            <div className="flex items-center justify-between mb-2">
-              <span className="font-label-sm text-label-sm text-outline">{t("contrast.cvdTitle")}</span>
-              <span className="font-code-value text-[10px] text-on-surface-variant">{t(cvdAlertKeys[cvdMode])}</span>
-            </div>
-            <div className="grid grid-cols-3 gap-1 bg-surface-container-lowest p-1 rounded-lg text-center">
-              {(Object.keys(cvdLabelKeys) as CvdMode[]).map((m) => (
-                <button
-                  key={m}
-                  className={`px-space-xs py-1 rounded font-code-value text-[11px] whitespace-nowrap shrink-0 transition-colors ${
-                    cvdMode === m
-                      ? "bg-surface-container-high text-on-surface font-semibold"
-                      : "text-on-surface-variant hover:text-on-surface hover:bg-surface-container"
-                  }`}
-                  onClick={() => setCvdMode(m)}
-                >
-                  {t(cvdLabelKeys[m])}
-                </button>
-              ))}
-            </div>
-          </PanelCard>
+
 
           {/* Auto-Tuning Recommendation */}
           {selectedCell && (
@@ -665,7 +774,7 @@ export default function ContrastMatrixView() {
                   {t("contrast.autoTuneTitle")}
                 </div>
                 <span className="font-code-value text-[10px] px-1.5 py-0.5 rounded bg-secondary-container/20 text-secondary">
-                  Optimal L {colorDesign(selectedCell.fgColor).l.toFixed(2)}
+                  {t("contrast.optimalL")} {colorDesign(selectedCell.fgColor).l.toFixed(2)}
                 </span>
               </div>
               <p className="font-code-value text-[11px] text-on-surface-variant leading-relaxed">
@@ -674,7 +783,10 @@ export default function ContrastMatrixView() {
                   : t("contrast.tuneAdvicePass", { ratio: selectedCell.ratio.toFixed(1), lc: approxApcaLc(selectedCell.fgColor, selectedCell.bgColor).toFixed(0) })}
               </p>
               <div className="flex items-center gap-space-sm pt-2">
-                <button className="flex-1 py-1.5 px-space-md rounded bg-surface-container-high hover:bg-surface-bright text-on-surface font-label-md text-label-md transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap">
+                <button 
+                  className="flex-1 py-1.5 px-space-md rounded bg-surface-container-high hover:bg-surface-bright text-on-surface font-label-md text-label-md transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap"
+                  onClick={applyCompensation}
+                >
                   <MaterialIcon name="auto_fix_high" size={16} className="text-primary" />
                   {t("contrast.applyCompensation")}
                 </button>

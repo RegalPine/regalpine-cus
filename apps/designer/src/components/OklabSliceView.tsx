@@ -4,6 +4,7 @@ import { oklabToOklch, oklchToOklab } from "@cus/core";
 import { gamutStatus, maxChroma, oklchToRgb } from "@cus/color";
 import { qualityEnvelope } from "@cus/palette";
 import { colorRgb, luminanceOf } from "./SliceView";
+import { useT } from "../i18n";
 
 // ─── CUS-UX-02 §20–§22：OKLab L/a/b 正交切片 ────────────────────────────────
 // V1 内置三种正交切片（§20）：
@@ -61,6 +62,7 @@ export function OklabSliceView({
   onSlice: (slice: SliceDefinition) => void;
   onHover?: (lab: { l: number; a: number; b: number } | null) => void;
 }) {
+  const t = useT();
   const svgRef = useRef<SVGSVGElement>(null);
   const hoverRef = useRef<HTMLSpanElement>(null);
   const dragging = useRef(false);
@@ -230,9 +232,9 @@ export function OklabSliceView({
     <div className="slice-panel" data-testid="oklab-slice-panel">
       <div className="space-controls">
         <label>
-          固定轴{" "}
+          {t("slice.fixedAxis")}{" "}
           <select
-            aria-label="OKLab 切片固定轴"
+            aria-label={t("slice.ariaFixedAxisOklab")}
             value={slice.axis}
             onChange={(e) => {
               const axis = e.target.value as SliceDefinition["axis"];
@@ -241,16 +243,16 @@ export function OklabSliceView({
               onSlice({ axis, value });
             }}
           >
-            <option value="L">L 明度（a×b 平面）</option>
-            <option value="a">a 绿红（L×b 平面）</option>
-            <option value="b">b 蓝黄（L×a 平面）</option>
+            <option value="L">{t("slice.axisLFull")}</option>
+            <option value="a">{t("slice.axisAFull")}</option>
+            <option value="b">{t("slice.axisBFull")}</option>
           </select>
         </label>
         <label>
-          {fixedLabel} 固定值{" "}
+          {fixedLabel} {t("slice.fixedValue")}{" "}
           <input
             type="range"
-            aria-label="OKLab 切片固定值"
+            aria-label={t("slice.ariaFixedValueOklab")}
             min={slice.axis === "L" ? 0 : -AB_MAX}
             max={slice.axis === "L" ? 1 : AB_MAX}
             step={0.001}
@@ -262,7 +264,7 @@ export function OklabSliceView({
           <input
             className="coordinate-input"
             type="number"
-            aria-label="OKLab 切片固定数值"
+            aria-label={t("slice.ariaFixedNumericOklab")}
             min={slice.axis === "L" ? 0 : -AB_MAX}
             max={slice.axis === "L" ? 1 : AB_MAX}
             step={0.001}
@@ -274,9 +276,9 @@ export function OklabSliceView({
           />
         </label>
         <span className="slice-meta" data-testid="oklab-slice-meta">
-          切片 {fixedLabel} = {slice.value.toFixed(3)} · 水平{" "}
-          {axisLabel(axes.horizontal)} · 垂直 {axisLabel(axes.vertical)} ·{" "}
-          <span ref={hoverRef}>悬停读取坐标</span>
+          {t("slice.sliceLabel")} {fixedLabel} = {slice.value.toFixed(3)} · {t("slice.horizontal")}{" "}
+          {axisLabel(axes.horizontal)} · {t("slice.vertical")} {axisLabel(axes.vertical)} ·{" "}
+          <span ref={hoverRef}>{t("slice.hoverCoords")}</span>
         </span>
       </div>
       <svg
@@ -284,7 +286,7 @@ export function OklabSliceView({
         className="slice-svg"
         viewBox={`0 0 ${W} ${H}`}
         role="img"
-        aria-label={`OKLab 二维切片：固定 ${fixedLabel}=${slice.value.toFixed(3)}，水平 ${axes.horizontal}，垂直 ${axes.vertical}；点击或拖动选择颜色`}
+        aria-label={t("slice.ariaLabelOklab", { axis: fixedLabel, value: slice.value.toFixed(3), h: axisLabel(axes.horizontal), v: axisLabel(axes.vertical) })}
         tabIndex={0}
         style={{ touchAction: "none" }}
         onPointerDown={(e) => {
@@ -313,11 +315,11 @@ export function OklabSliceView({
         onPointerLeave={() => {
           dragging.current = false;
           onHover?.(null);
-          if (hoverRef.current) hoverRef.current.textContent = "悬停读取坐标";
+          if (hoverRef.current) hoverRef.current.textContent = t("slice.hoverCoords");
         }}
       >
         <title>
-          OKLab 切片：固定 {fixedLabel}={slice.value.toFixed(3)}；点击或拖动以选择候选颜色
+          {t("slice.titleOklab", { axis: fixedLabel, value: slice.value.toFixed(3) })}
         </title>
         <defs>
           <pattern id="oklab-dirty-hatch" width="8" height="8" patternUnits="userSpaceOnUse">
@@ -426,9 +428,7 @@ export function OklabSliceView({
         </g>
       </svg>
       <p className="muted">
-        OKLab 正交切片（§20）：固定 {fixedLabel}，水平 {axes.horizontal} × 垂直{" "}
-        {axes.vertical} · 点击或拖动产生连续坐标候选（§19）· 虚线锚点表示当前锚点不在切片平面内 ·
-        sRGB 实线 / P3 虚线色域边界（maxChroma 采样，§33）· 斜线阴影为 Dirty Zone 与对比度不足区域
+        {t("slice.hintOklab", { axis: fixedLabel, h: axisLabel(axes.horizontal), v: axisLabel(axes.vertical) })}
       </p>
     </div>
   );

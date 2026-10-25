@@ -171,7 +171,10 @@ export function WorkspaceCenter({
         return { role: r.key, label: t(r.labelKey), dotColor: r.dotColor, textColor: r.textColor, steps, group: "palette" };
       });
 
-    return [...paletteScales, ...feedbackScales];
+    // neutral 排到最后
+    const nonNeutralPalette = paletteScales.filter((s) => s.role !== "neutral");
+    const neutralPalette = paletteScales.filter((s) => s.role === "neutral");
+    return [...nonNeutralPalette, ...feedbackScales, ...neutralPalette];
   }, [result.palette, t]);
 
   return (
@@ -202,7 +205,7 @@ export function WorkspaceCenter({
               <div
                 key={step}
                 className={`flex flex-col bg-surface-container-lowest rounded-lg p-1.5 group hover:bg-surface-container-high transition-all ${
-                  isBase ? "ring-2 ring-primary shadow-md relative" : ""
+                  isBase ? "ring-1 ring-primary shadow-md relative" : ""
                 }`}
               >
                 {isBase && (

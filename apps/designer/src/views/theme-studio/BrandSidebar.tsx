@@ -15,28 +15,42 @@ import { useBrandInput, fmtValue } from "../../hooks/useBrandInput";
 import { PanelCard } from "../../shared/layout/PanelCard";
 import { OKLCHPicker } from "../../components/OKLCHPicker";
 import { useT } from "../../i18n";
+import type { TranslationKey } from "../../i18n/translations";
 
-/** 推荐感知基准预设 */
+/** 推荐感知基准预设（含传统品牌色） */
 const PRESET_COLORS = [
-  { hex: "#6366f1", l: 0.58, c: 0.24, h: 275.4, name: "Electric Indigo" },
-  { hex: "#10b981", l: 0.70, c: 0.17, h: 162.0, name: "Emerald Pulse" },
-  { hex: "#8b5cf6", l: 0.54, c: 0.27, h: 290.8, name: "Cyber Violet" },
-  { hex: "#f97316", l: 0.69, c: 0.19, h: 45.2, name: "Sunset Tangerine" },
+  { hex: "#6366f1", nameKey: "brand.presetElectricIndigo" as const },
+  { hex: "#10b981", nameKey: "brand.presetEmeraldPulse" as const },
+  { hex: "#8b5cf6", nameKey: "brand.presetCyberViolet" as const },
+  { hex: "#f97316", nameKey: "brand.presetSunsetTangerine" as const },
+  { hex: "#2457C5", nameKey: "brand.presetRoyalBlue" as const },
+  { hex: "#7954B3", nameKey: "brand.presetAmethyst" as const },
+  { hex: "#C54B64", nameKey: "brand.presetCrimsonRose" as const },
+  { hex: "#C8782B", nameKey: "brand.presetAmberGold" as const },
+  { hex: "#24836A", nameKey: "brand.presetForestTeal" as const },
+  { hex: "#272B35", nameKey: "brand.presetGraphite" as const },
+  { hex: "#6B7280", nameKey: "brand.presetNeutral" as const },
 ];
 
-function getHueName(h: number): string {
-  if (h < 15 || h >= 345) return "Red";
-  if (h < 45) return "Orange";
-  if (h < 75) return "Yellow";
-  if (h < 105) return "Lime";
-  if (h < 135) return "Green";
-  if (h < 165) return "Teal";
-  if (h < 195) return "Cyan";
-  if (h < 225) return "Sky";
-  if (h < 255) return "Blue";
-  if (h < 285) return "Indigo/Violet";
-  if (h < 315) return "Purple";
-  return "Magenta/Pink";
+const HUE_NAME_KEYS: { max: number; key: TranslationKey }[] = [
+  { max: 15, key: "brand.hueRed" },
+  { max: 45, key: "brand.hueOrange" },
+  { max: 75, key: "brand.hueYellow" },
+  { max: 105, key: "brand.hueLime" },
+  { max: 135, key: "brand.hueGreen" },
+  { max: 165, key: "brand.hueTeal" },
+  { max: 195, key: "brand.hueCyan" },
+  { max: 225, key: "brand.hueSky" },
+  { max: 255, key: "brand.hueBlue" },
+  { max: 285, key: "brand.hueIndigoViolet" },
+  { max: 315, key: "brand.huePurple" },
+  { max: 360, key: "brand.hueMagentaPink" },
+];
+function getHueNameKey(h: number): TranslationKey {
+  for (const entry of HUE_NAME_KEYS) {
+    if (h < entry.max) return entry.key;
+  }
+  return "brand.hueRed";
 }
 
 export function BrandSidebar({
@@ -71,23 +85,6 @@ export function BrandSidebar({
             {t("brand.title")}
           </h2>
           <span className="px-1.5 py-0.5 rounded bg-surface-container-high font-code-value text-body-sm text-secondary">OKLCH</span>
-        </div>
-
-        {/* Presets Row */}
-        <div className="flex flex-col gap-1.5 mb-space-md">
-          <label className="font-label-sm text-label-sm text-outline uppercase tracking-wider">{t("brand.presetsLabel")}</label>
-          <div className="grid grid-cols-2 gap-1.5">
-            {PRESET_COLORS.map((p) => (
-              <button
-                key={p.hex}
-                className="px-2 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-left flex items-center gap-2 transition-all"
-                onClick={() => actions.updateBrand(p.hex)}
-              >
-                <span className="w-3 h-3 rounded-full shrink-0 shadow-sm" style={{ background: p.hex }} />
-                <span className="font-label-sm text-label-sm text-on-surface truncate">{p.name}</span>
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* Brand Color Input Group */}
@@ -205,7 +202,7 @@ export function BrandSidebar({
                   {result.brand.oklch.h != null ? `${fmtValue(result.brand.oklch.h, 1)}°` : "—"}
                 </span>
                 <span className="text-outline">
-                  {result.brand.oklch.h != null ? getHueName(result.brand.oklch.h) : "Achromatic"}
+                  {result.brand.oklch.h != null ? t(getHueNameKey(result.brand.oklch.h)) : t("brand.achromatic")}
                 </span>
               </div>
             </div>
@@ -298,6 +295,28 @@ export function BrandSidebar({
           </div>
         </div>
 
+        {/* Presets Row — 推荐感知基准预设 */}
+        <div className="flex flex-col gap-1.5 pt-4">
+          <div className="flex items-center justify-between">
+            <label className="font-label-sm text-label-sm text-outline uppercase tracking-wider">{t("brand.presetsLabel")}</label>
+            <button className="text-[11px] text-on-surface-variant hover:text-on-surface" onClick={() => actions.updateBrand("#2457C5")}>{t("brand.reset")}</button>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {PRESET_COLORS.map((p) => (
+              <button
+                key={p.hex}
+                className="px-2 py-1.5 rounded-lg bg-surface-container hover:bg-surface-container-high text-left flex items-center gap-2 transition-all relative"
+                onClick={() => actions.updateBrand(p.hex)}
+                aria-pressed={result.brand.hex === p.hex}
+              >
+                <span className="w-3 h-3 rounded-full shrink-0 shadow-sm" style={{ background: p.hex }} />
+                <span className="font-label-sm text-label-sm text-on-surface truncate">{t(p.nameKey)}</span>
+                {result.brand.hex === p.hex && <span className="text-[10px] text-primary font-bold ml-auto">✓</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Gamut Mapping Alert Card */}
         <div className="mt-4 bg-surface-container-lowest p-space-md rounded-xl flex items-start gap-2.5">
           <span className="text-secondary text-[20px] shrink-0 mt-0.5">✓</span>
@@ -306,43 +325,6 @@ export function BrandSidebar({
             <span className="font-body-sm text-body-sm text-secondary font-medium">{t("brand.gamutDesc")}</span>
             <span className="font-label-sm text-[11px] text-outline mt-0.5">{t("brand.gamutAlgo")}</span>
           </div>
-        </div>
-      </PanelCard>
-
-      {/* ── Pipeline Engine Flow Card ── */}
-      <PanelCard level="low">
-        <div className="flex items-center justify-between font-label-sm text-label-sm text-outline mb-2">
-          <span>{t("brand.pipelineTitle")}</span>
-          <span className="text-secondary font-code-value">{t("brand.pipelineSync")}</span>
-        </div>
-        <div className="flex items-center gap-1.5 font-code-value text-body-sm text-on-surface-variant">
-          <span className="px-1.5 py-0.5 rounded bg-surface-container-highest text-primary">{t("brand.pipelineHex")}</span>
-          <span>→</span>
-          <span className="px-1.5 py-0.5 rounded bg-surface-container-highest text-secondary">{t("brand.pipelineOklch")}</span>
-          <span>→</span>
-          <span className="px-1.5 py-0.5 rounded bg-surface-container-highest text-on-surface">{t("brand.pipelineCurve")}</span>
-        </div>
-      </PanelCard>
-
-      {/* ── 预设品牌色 (保留功能) ── */}
-      <PanelCard level="low">
-        <div className="flex items-center justify-between mb-2">
-          <span className="font-label-sm text-label-sm text-on-surface font-medium">{t("brand.presetColors")}</span>
-          <button className="text-[11px] text-on-surface-variant hover:text-on-surface" onClick={() => actions.updateBrand("#2457C5")}>{t("brand.reset")}</button>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {["#2457C5", "#7954B3", "#C54B64", "#C8782B", "#24836A", "#272B35"].map((c) => (
-            <button
-              key={c}
-              className="w-7 h-7 rounded-lg shadow-sm transition-transform hover:scale-110"
-              style={{ background: c }}
-              aria-label={`${t("brand.ariaUseColor")} ${c}`}
-              aria-pressed={result.brand.hex === c}
-              onClick={() => actions.updateBrand(c)}
-            >
-              {result.brand.hex === c && <span className="text-[10px] text-white font-bold">✓</span>}
-            </button>
-          ))}
         </div>
       </PanelCard>
 

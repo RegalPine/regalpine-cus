@@ -11,6 +11,7 @@ import type {
   RGBSpace,
 } from "@cus/core";
 import type { ExportOptions } from "./index";
+import { selectedOutput } from "./index";
 
 interface DTCGToken {
   $value: string;
@@ -98,7 +99,8 @@ export function exportDTCGJson(
   options: ExportOptions = {},
 ): string {
   const modes = (options.modes ?? (["light", "dark"] as const).filter((m) => result.theme[m])) as ThemeMode[];
-  const space: RGBSpace = "srgb";
+  const output = selectedOutput(result, options);
+  const space: RGBSpace = output.displayP3 ? "display-p3" : "srgb";
 
   const dtcgDoc: Record<string, unknown> = {
     $schema: "https://design-tokens.github.io/community-group/format/",
@@ -115,7 +117,10 @@ export function exportDTCGJson(
       colorSpace: "oklch",
       whitePoint: "D65",
       observer: "CIE_1931_2",
-      outputs: ["srgb"],
+      outputs: [
+        ...(output.srgb ? ["srgb"] : []),
+        ...(output.displayP3 ? ["display-p3"] : []),
+      ],
     },
   };
 
